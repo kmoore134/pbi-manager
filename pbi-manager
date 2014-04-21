@@ -102,6 +102,7 @@ usage: `basename $0` [options] pbi
 
 Options:
   -c             -- Delete the container version of the PBI
+  -f             -- Force removing a PBI / package
   -v             -- Enable verbose output
 
 EOF
@@ -184,12 +185,15 @@ parse_delete_pbi_cmdline() {
                         ;;
                 -c)     PBI_CONTAINER="YES" 
                         ;;
+                -f)     PBI_FORCEDELETE="YES" 
+                        ;;
                  *)     if [ $# -gt 1 ]; then usage_delete_pbi; fi
 			if [ "$PBI_CONTAINER" != "YES" ] ;then
 				load_pbi_info_index "$1"
 				if [ $? -ne 0 ] ; then
 					exit_err "No such PBI: $1"
 				fi
+                        	PBI_DELETENAME="$1"
 			else
 				if [ ! -e "${PBI_DBAPPDIR}/${1}" ] ; then
 					find_pbi_namematch "$1"
@@ -1314,8 +1318,10 @@ load_pbi_info_index()
 	PBI_PROGCAT=`echo $line | awk -F:::: '{print $8}'`
 	PBI_PROGMAINT=`echo $line | awk -F:::: '{print $10}'`
 	PBI_SHORTDESC=`echo $line | awk -F:::: '{print $11}'`
-	PBI_APPARCH=`uname -m`
 	PBI_DESC=`echo $line | awk -F:::: '{print $12}'`
+	PBI_PLUGINS=`echo $line | awk -F:::: '{print $15}'`
+	PBI_CANCONTAINER=`echo $line | awk -F:::: '{print $16}'`
+	PBI_APPARCH=`uname -m`
 	PBI_PROGVERSION=`pkg-static rquery '%v' $PBI_ORIGIN`
 
 	return 0
@@ -2901,6 +2907,42 @@ pbi_delete_init() {
 
 # Delete this PBI
 do_pbi_delete() {
+
+	# Not doing a container delete, lets nuke the packages
+	if [ "$PBI_CONTAINER" != "YES" ] ; then
+		# First confirm this package is installed
+		pkg-static query '%n' $PBI_ORIGIN 2>/dev/null >/dev/null
+		if [ $? -ne 0 ] ; then
+			exit_err "$PBI_DELETENAME is not installed!"
+		fi
+		require_root
+		
+		if [ "$PBI_FORCEDELETE" = "YES" ] ; then
+			pOpts="-y -f"
+		else
+			pOpts="-y"
+		fi
+
+		pkg-static delete $pOpts $PBI_ORIGIN
+		if [ $? -eq 0 ] ; then
+			echo "WARNING: Did not completely remove ${PBI_ORIGIN}, use -f to force."
+		fi
+
+		# Check if we can remove any plugins
+		for i in $PBI_PLUGINS
+		do
+			pkg-static delete ${pOpts} $i
+			if [ $? -eq 0 ] ; then
+				echo "WARNING: Did not remove optional plugin ${i}"
+			fi
+		done
+		
+		# Do any package autoremove cleanup
+		pkg-static autoremove -y
+		
+		exit_trap
+	fi
+
 	load_info_from_dir "${PBI_DBAPPDIR}/${PBI_DELETENAME}"
 	PBI_PROGDIRPATH="${PBI_ORIGPROGDIRPATH}"
 
@@ -2911,12 +2953,6 @@ do_pbi_delete() {
 
 	# Set the dirty flag that we are removing this PBI
 	touch ${PBI_DBAPPDIR}/${PBI_DELETENAME}/.pbiDeleted
-
-	# Unmount the PBI if its mounted
-	/usr/pbi/.pbime umount "/usr/pbi/.mounts/`basename $PBI_PROGDIRPATH`"
-
-	# Sleep 5 before nuking dirs
-	sleep 5
 
 	check_preremove_script
 	run_remove_script
