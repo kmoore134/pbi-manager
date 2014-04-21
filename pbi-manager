@@ -175,19 +175,6 @@ EOF
         exit_trap
 }
 
-usage_browse_pbi() {
-        cat <<EOF
-usage: `basename $0` [options] [repoid]
-                
-Options:
-  -c category  	-- List PBIs from the specified category
-  -s search 	-- Search for the specified string
-  --listcats  	-- List the available categories in this repository
-
-EOF
-        exit_trap
-}
-
 # Parse the command line for info
 parse_delete_pbi_cmdline() {
         while [ $# -gt 0 ]; do
@@ -311,31 +298,6 @@ parse_info_pbi_cmdline() {
 	if [ -z "${PBI_INFONAME}" ] ; then 
 		PBI_INFONAME="--ALL--" 
 	fi
-}
-
-# Parse the command line for browsing
-parse_browse_pbi_cmdline() {
-        while [ $# -gt 0 ]; do
-                case "$1" in
-        --listcats)     PBI_BROWSE_LISTCATS="YES" ;; 
-         --viewall)     PBI_BROWSE_LISTALLPBI="YES" ;; 
-                -c)	if [ $# -eq 1  ]; then usage_browse_pbi; fi
-                       	shift; PBI_BROWSE_CAT="$1"
-			;;
-                -s)	if [ $# -eq 1  ]; then usage_browse_pbi; fi
-                       	shift; PBI_BROWSE_SEARCH="$1"
-			;;
-                 *)	if [ $# -gt 1  ]; then usage_browse_pbi; fi
-                       	PBI_BROWSE_RID="$1"
-                        ;;
-                esac
-                shift
-        done
-
-	if [ -z "${PBI_BROWSE_METAFILE}" ] ; then
-		exit_err "The specified repo has no meta-file."
-	fi
-
 }
 
 # Parse the command line for adding
@@ -1238,6 +1200,10 @@ make_pbi_index() {
 		continue
 	fi
 
+	# Git rid of extra spaces
+	PBI_MKPORTBEFORE="`echo $PBI_MKPORTBEFORE | awk 1 ORS=' ' `"
+	PBI_MKPORTAFTER="`echo $PBI_MKPORTAFTER | awk 1 ORS=' ' `"
+
 	# Check that all the required packages are available
 	skip=0
 	for port in ${PBI_MKPORTBEFORE}
@@ -1310,190 +1276,6 @@ make_pbi_index() {
    fi
 
    exit 0
-}
-
-pbi_browser_init() {
-	parse_browse_pbi_cmdline "$@"
-	init_tmpdir
-
-	# Check if we are doing a category listing, the default if no options
-	if [ "$PBI_BROWSE_LISTCATS" = "YES" -o -z "${PBI_BROWSE_LISTALLPBI}${PBI_BROWSE_CAT}${PBI_BROWSE_SEARCH}" ] ; then
-		pbi_browse_listcats
-	else
-		pbi_browse_listpbi
-	fi
-
-}
-
-# List PBIs from a repo
-pbi_browse_listpbi() {
-	_rArch=`uname -m`
-
-	# Figure out which type of display we are doing
-	if [ -n "$PBI_BROWSE_LISTALLPBI" ] ; then
-		echo "Using RepoID: $PBI_BROWSE_RID"
-		echo "Listing all available PBIs"
-		grep -i -e "^App=" $PBI_BROWSE_METAFILE > ${PBI_TMPDIR}/.meta.$$
-	elif [ -n "$PBI_BROWSE_CAT" ] ; then
-		echo "Using RepoID: $PBI_BROWSE_RID"
-		echo "Available PBIs for Category: $PBI_BROWSE_CAT"
-		grep -i -e "^App=" -i -e ";${PBI_BROWSE_CAT};" $PBI_BROWSE_METAFILE > ${PBI_TMPDIR}/.meta.$$
-	elif [ -n "$PBI_BROWSE_SEARCH" ] ; then
-		echo "Using RepoID: $PBI_BROWSE_RID"
-		echo "Searching for: $PBI_BROWSE_SEARCH"
-		grep -i -e "^App=" $PBI_BROWSE_METAFILE > ${PBI_TMPDIR}/.meta.$$
-	else
-		exit_err "No valid search variable set!"
-	fi
-
-	while read app
-	do
-		line=`echo $app | sed 's|^App=||g'`
-		catCheck=`echo $line | cut -d ';' -f 2 2>/dev/null`
-		aName=`echo $line | cut -d ';' -f 1 2>/dev/null`
-
-		# Make sure this is from the correct category
-		if [ -n "$PBI_BROWSE_CAT" ] ; then
-			_cCheck=`echo $catCheck | tr '[:lower:]' '[:upper:]'`
-			_cCheck2=`echo $PBI_BROWSE_CAT | tr '[:lower:]' '[:upper:]'`
-			if [ "$_cCheck" != "$_cCheck2" ]; then 
-			continue
-			fi
-		fi
-
-		# Set the displayed arch type
-		aArch="$_rArch"
-
-		# Make sure this application has an associated PBI available
-		check_pbi_update "$aName" "nodisplay" \
-		 "$aName" "current" \
-		 "$FBSDMAJOR" "$_rArch" "${PBI_BROWSE_RID}"
-		if [ "$?" != "0" ] ; then
-			# On amd64, see if 32bit version exists
-			if [ "$_rArch" = "amd64" ] ; then
-				check_pbi_update "$aName" "nodisplay" \
-		 		"$aName" "current" \
-		 		"$FBSDMAJOR" "i386" "${PBI_BROWSE_RID}"
-				if [ "$?" != "0" ] ; then 
-					continue
-				else
-					# Found a 32bit version of the app
-					aArch="i386"
-				fi
-			else
-				# Not on amd64, continue on
-				continue
-			fi
-		fi
-
-		aIcon=`echo $line | cut -d ';' -f 3`
-		aAuthor=`echo $line | cut -d ';' -f 4`
-		aUrl=`echo $line | cut -d ';' -f 5`
-		aLic=`echo $line | cut -d ';' -f 6`
-		aType=`echo $line | cut -d ';' -f 7`
-		aKeywords=`echo $line | cut -d ';' -f 8`
-		aDesc=`echo $line | cut -d ';' -f 9`
-		aRoot=`echo $line | cut -d ';' -f 10`
-
-		# Check for a translation to the description
-		get_meta_trans "App" "$cName" "${PBI_BROWSE_METAFILE}"
-		if [ -n "$MTRANS" ] ; then
-			aDesc="$MTRANS"
-		fi
-
-		# Search the description / keywords
-		if [ -n "$PBI_BROWSE_SEARCH" ] ; then
-			echo "$aName,$aDesc,$aKeywords,$MTRANS" | grep -i "$PBI_BROWSE_SEARCH" >/dev/null 2>/dev/null
-			if [ "$?" != "0" ]; then continue ; fi
-		fi
-
-		# Get the local icon file
-		echo "------------------------------------"
-		echo "Application: $aName"
-		echo "Version: $PBI_UPNVER"
-		if [ -n "$PBI_UPSIZE" ] ; then
-			echo "Size: $PBI_UPSIZE"
-		fi
-		if [ -n "$PBI_BROWSE_LISTALLPBI" ] ; then
-			echo "Category: $catCheck"
-		fi
-		echo "Created: `echo $PBI_UPMDATE`"
-		if [ "$aRoot" = "YES" ] ; then
-			echo "RootInstall: YES"
-		else
-			echo "RootInstall: NO"
-		fi
-		echo "Arch: $aArch"
-		echo "Author: $aAuthor"
-		echo "URL: $aUrl"
-		echo "License: $aLic"
-		echo "Type: $aType"
-		echo "Keywords: $aKeywords"
-		echo "Description: $aDesc"
-		echo ""
-		if [ "$aRoot" = "YES" ] ; then
-			echo "To install this PBI (As Root):"
-		else
-			echo "To install this PBI:"
-		fi
-		echo "# pbi_add --rArch $aArch --repo $PBI_BROWSE_RID -r $aName"
-		echo ""
-
-		
-	done < ${PBI_TMPDIR}/.meta.$$
-
-}
-
-# List available categories for this repository
-pbi_browse_listcats() {
-
-	echo "Using RepoID: $PBI_BROWSE_RID"
-	echo "Available Categories:"
-	grep "^Cat=" $PBI_BROWSE_METAFILE > ${PBI_TMPDIR}/.meta.$$
-	while read cat
-	do
-		line=`echo $cat | sed 's|^Cat=||g'`
-		cName=`echo $line | cut -d ';' -f 1`
-		cIcon=`echo $line | cut -d ';' -f 2`
-		cDesc=`echo $line | cut -d ';' -f 3`
-		
-		# Check for a translation to the description
-		get_meta_trans "Cat" "$cName" "${PBI_BROWSE_METAFILE}"
-		if [ -n "$MTRANS" ] ; then
-			cDesc="$MTRANS"
-		fi
-
-		# Get the local icon file
-		echo "------------------------------------"
-		echo "Category: $cName"
-		echo "Description: $cDesc"
-		echo ""
-
-	done < ${PBI_TMPDIR}/.meta.$$
-
-	echo "To view available PBIs for a particular category:"
-	echo " % pbi_browser -c <category> <repoid>"
-}
-
-# Function to check if we have a translated description
-get_meta_trans() {
-	local tag="$1"
-	local name="$2"
-	local metaFile="$3"
-
-	# Check if we have a translation to overwrite with
-	MTRANS=""
-	if [ -z "$LANG" ] ; then return; fi
-
-	lCheck="`echo $LANG | cut -d '_' -f 1` `echo $LANG | cut -d '.' -f 1`"
-	for l in $lCheck
-	do
-		catTrans=`grep "^${tag}\[$l\]=${name}" ${metaFile}`	
-		if [ -n "$catTrans" ] ; then
-			MTRANS=`echo $catTrans | cut -d ";" -f 2`
-			return
-		fi
-	done
 }
 
 # Lets check if this PBI exists in the indexdb
@@ -3611,9 +3393,13 @@ do_index_listing()
 	# No Database? Ain't gona find much..
 	if [ ! -e "$PBI_INDEXDB" ] ; then return; fi
 
-	echo "Current and available PBIs. * = current"
-	echo "Repository: $_rDesc"
+	init_tmpdir
+
+	echo "All available PBIs"
 	echo "----------------------------------------------------------------"
+
+	# Build list of all packages / origins
+	pkg-static rquery '%o %n-%v' >${PBI_TMPDIR}/.pList
 
 	while read line
 	do
@@ -3623,9 +3409,12 @@ do_index_listing()
 		PBI_PROGNAME=`echo $line | awk -F:::: '{print $2}'`
 		PBI_PROGNAME=`echo ${PBI_PROGNAME} | tr -d ' ' | tr '[A-Z]' '[a-z]'`
 		PBI_ORIGIN=`echo $line | awk -F:::: '{print $1}' | sed 's|PBI=||g'`
-		PBI_PROGVERSION=`pkg-static rquery '%v' $PBI_ORIGIN`
-		echo "$PBI_PROGNAME-$PBI_PROGVERSION"
+		dName=`grep "^$PBI_ORIGIN " ${PBI_TMPDIR}/.pList | cut -d ' ' -f 2`
+		if [ -n "$dName" ] ; then
+			echo $dName
+		fi
 	done < $PBI_INDEXDB
+	exit_trap
 }
 
 # Function to pad a variable to X spaces
@@ -5417,6 +5206,9 @@ app_init()
   # Alias install -> add
   if [ "$cmd" = "install" ] ; then cmd="add" ; fi
 
+  if [ "$cmd" = "help" ] ; then
+  fi
+
   which -s "pbi_${cmd}" 
   if [ $? -ne 0 ] ; then usage_app; fi
 
@@ -5434,7 +5226,6 @@ Available sub-commands:
 
   add
   autobuild
-  browser
   create
   delete
   icon
@@ -5463,7 +5254,6 @@ trap exit_trap 1 2 3 9 15
 case `basename ${0}` in
    pbi_add) pbi_add_init "$@" ;;
    pbi_autobuild) pbi_autob_init "$@" ;;
-   pbi_browser) pbi_browser_init "$@" ;;
    pbi_create) pbi_create_init "$@" ;;
    pbi_delete) pbi_delete_init "$@" ;;
    pbi_icon) pbi_icon_init "$@" ;;
