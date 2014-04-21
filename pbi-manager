@@ -303,6 +303,10 @@ parse_add_pbi_cmdline() {
 	# If this isn't a stand-alone container version we can stop here
 	if [ "$PBI_DOCONTAINER" != "YES" ] ; then return; fi
 
+	# Are we assembling this PBI?
+	echo "$PBI_FILENAME" | grep -q "\.pbi"
+	if [ $? -ne 0 -o ! -e "$PBI_FILENAME" ] ; then return; fi
+
         # Load all the information about this PBI
         load_info_from_header
 
@@ -677,13 +681,6 @@ rm_tmpdir() {
 	if [ -e "${PBI_TMPDIR}" ] ; then rm -rf "${PBI_TMPDIR}" ; fi
 }
 
-# rm tmpdir
-rm_buildfiles() {
-	if [ "${PBI_KEEPBUILDFILES}" = "YES" ] ; then return ; fi
-	if [ -z "$PBI_CHROOTDIR" ] ; then return ; fi
-	chroot_make_cleanup
-}
-
 # Load PBI conf options
 load_pbi_conffile() {
   	if [ ! -d "${PBI_CONFDIR}" ] ; then return 0 ; fi
@@ -804,8 +801,6 @@ get_pbi_progdir() {
 exit_err() {
 	echo -e "`basename ${0}`: ${1}"
 	rm_tmpdir
-	rm_buildfiles
-	chroot_make_cleanup
 	exit 255
 }
 
@@ -1017,6 +1012,9 @@ load_pbi_info_index()
 	PBI_CANCONTAINER=`echo $line | awk -F:::: '{print $16}'`
 	PBI_APPARCH=`uname -m`
 	PBI_PROGVERSION=`pkg-static rquery '%v' $PBI_ORIGIN`
+	
+	# Set the PBI_PROGDIRPATH
+	get_pbi_progdir
 
 	return 0
 }
@@ -1040,21 +1038,99 @@ pbi_add_init() {
 		exit_trap
 	fi
 
-	# Check if we are only displaying information
-	check_pbi_info_display
-	check_pbi_scripts_display
-	check_pbi_license_display
-	check_pbi_meta_display
-	if [ "$PBI_ADD_GUIDISPLAY" = "YES" -o "$PBI_ADD_INFODISPLAY" = "YES" -o "$PBI_CHECKSCRIPTS" = "YES" -o "${PBI_ADD_LICDISPLAY}" = "YES" -o "${PBI_ADD_METADISPLAY}" = "YES" ] 
-	then 
+	# Are we loading from an existing .pbi file, or building?
+	echo "$PBI_FILENAME" | grep -q "\.pbi"
+	if [ $? -eq 0 -a -e "$PBI_FILENAME" ] ; then
+		# Check if we are only displaying information
+		check_pbi_info_display
+		check_pbi_scripts_display
+		check_pbi_license_display
+		check_pbi_meta_display
+		if [ "$PBI_ADD_GUIDISPLAY" = "YES" -o "$PBI_ADD_INFODISPLAY" = "YES" -o "$PBI_CHECKSCRIPTS" = "YES" -o "${PBI_ADD_LICDISPLAY}" = "YES" -o "${PBI_ADD_METADISPLAY}" = "YES" ] 
+		then
+			exit_trap
+		fi
+
+  		require_root
+
+		check_agree_lic
+		check_existing_pbi
+		do_pbi_add
+		exit_trap
+	else
+		# We are assembling this PBI from packages
+		load_pbi_info_index "$PBI_FILENAME"
+		if [ $? -ne 0 ] ; then
+			exit_err "No such PBI: $PBI_FILENAME"
+		fi
+		if [ "$PBI_ADD_INFODISPLAY" = "YES" ] ; then
+			check_pbi_info_display
+			exit_trap
+		fi
+		do_pbi_pkg_build
 		exit_trap
 	fi
 
-  	require_root
+}
 
-	check_agree_lic
-	check_existing_pbi
-	do_pbi_add
+# Build a list of dependancies for a particular package
+get_pkg_dep_list()
+{
+	for i in `pkg-static rquery -U '%dn-%dv' ${1}`
+	do
+		echo $DEP_LIST | grep -qw "$i"
+		if [ $? -eq 0 ] ; then continue ; fi
+
+		# Save this package name
+		DEP_LIST="$DEP_LIST ${i}"
+
+		# Drill down
+		get_pkg_dep_list "$i"
+	done
+}
+
+# Creating a PBI container from packages
+do_pbi_pkg_build()
+{
+	echo "Installing: $PBI_FILENAME into container"
+	init_tmpdir
+
+	# Make list of packages we are fetching
+	local _fetch="$PBI_ORIGIN $PBI_PKGOTHER"
+	PKG_CACHEDIR="/usr/local/tmp" ; export PKG_CACHEDIR
+	if [ ! -d "${PKG_CACHEDIR}" ] ; then
+		mkdir -p ${PKG_CACHEDIR}
+	fi
+
+	pkg-static update
+	pkg-static fetch -U -y -d $_fetch
+	if [ $? -ne 0 ] ; then
+		exit_err "Failed downloading packages..."
+	fi
+
+	# Now lets figure out which packages we need to extract
+	DEP_LIST=""
+	for top in $_fetch
+	do
+		topName="`pkg-static rquery '%n-%v' ${top}`"
+		DEP_LIST="${DEP_LIST} $topName"
+		get_pkg_dep_list "$top"
+	done
+
+	# Now lets extract these packages into PBI_PROGDIRPATH
+	mkdir -p ${PBI_PROGDIRPATH}/local 2>/dev/null
+	mkdir -p ${PBI_PROGDIRPATH}/linux 2>/dev/null
+	
+	for pkg in $DEP_LIST
+	do
+		echo "Extracting ${pkg}"
+		tar -xvp -s ",/usr/local,${PBI_PROGDIRPATH}/local," -s ",/compat/linux,${PBI_PROGDIRPATH}/linux," -C / -f ${PKG_CACHEDIR}/All/${pkg}.txz 2>/dev/null
+		if [ $? -ne 0 ] ; then
+			exit_err "Failed to extract: ${pkg}"
+		fi
+	done
+
+
 }
 
 # Doing a PBI install via the package system
@@ -1072,8 +1148,12 @@ do_pbi_pkg_add() {
 		if [ $? -eq 0 ] ; then continue ; fi
 		
 		# Not installed! Lets Add it to the list
-		_toIns="$_toIns $i"	
+		_toIns="$_toIns $i"
 	done
+
+	if [ -z "$_toIns" ] ; then
+		exit_err "$PBI_FILENAME is already installed!"
+	fi
 
 	if [ "$PBI_VERBOSE" = "YES" ] ; then
 		echo "Installing packages: $_toIns"
@@ -3406,7 +3486,6 @@ exit_trap() {
 	   done
 	fi
 
-        chroot_make_cleanup
 	rm_tmpdir
 	exit 0
 }
