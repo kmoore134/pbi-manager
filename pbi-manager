@@ -101,6 +101,7 @@ usage_delete_pbi() {
 usage: `basename $0` [options] pbi
 
 Options:
+  -c             -- Delete the container version of the PBI
   -v             -- Enable verbose output
 
 EOF
@@ -181,16 +182,25 @@ parse_delete_pbi_cmdline() {
                 case "$1" in
                 -v)     PBI_VERBOSE="YES" 
                         ;;
+                -c)     PBI_CONTAINER="YES" 
+                        ;;
                  *)     if [ $# -gt 1 ]; then usage_delete_pbi; fi
-			if [ ! -e "${PBI_DBAPPDIR}/${1}" ] ; then
-				find_pbi_namematch "$1"
-				if [ -z "$PBI_NAMEMATCH" ] ; then
-                                	exit_err "can't find installed pbi (${1})"
+			if [ "$PBI_CONTAINER" != "YES" ] ;then
+				load_pbi_info_index "$1"
+				if [ $? -ne 0 ] ; then
+					exit_err "No such PBI: $1"
 				fi
-                        	PBI_DELETENAME="$PBI_NAMEMATCH"
 			else
-                        	PBI_DELETENAME="$1"
-                        fi
+				if [ ! -e "${PBI_DBAPPDIR}/${1}" ] ; then
+					find_pbi_namematch "$1"
+					if [ -z "$PBI_NAMEMATCH" ] ; then
+                                		exit_err "can't find installed pbi (${1})"
+					fi
+                        		PBI_DELETENAME="$PBI_NAMEMATCH"
+				else
+                        		PBI_DELETENAME="$1"
+                        	fi
+			fi
                         ;;
                 esac
                 shift
@@ -749,7 +759,7 @@ init_vars() {
 		PBIDSLEEP="300"	# Amount of time to sleep before waking up pbid
 	fi
 	if [ -z "$PBI_INDEXREFRESH" ] ; then
-		PBI_INDEXREFRESH="24" # Hours to wait until we re-download PBI indexes
+		PBI_INDEXREFRESH="12" # Hours to wait until we re-download PBI indexes
 	fi
 	if [ -n "$PBI_MAJORVERSION" ] ; then
 		FBSDMAJOR=${PBI_FBSDMAJOR}
@@ -1201,12 +1211,12 @@ make_pbi_index() {
 	fi
 
 	# Git rid of extra spaces
-	PBI_MKPORTBEFORE="`echo $PBI_MKPORTBEFORE | awk 1 ORS=' ' `"
-	PBI_MKPORTAFTER="`echo $PBI_MKPORTAFTER | awk 1 ORS=' ' `"
+	local _MKPB=""
+	local _MKPA=""
 
 	# Check that all the required packages are available
 	skip=0
-	for port in ${PBI_MKPORTBEFORE}
+	for port in `echo ${PBI_MKPORTBEFORE} | awk 1 ORS=' '`
 	do
   		# Cleanup $port
   		echo $port | grep -q "/$"
@@ -1220,8 +1230,9 @@ make_pbi_index() {
 			skip=1
 			break
 		fi
+		_MKPB="$_MKPB $port"
 	done
-	for port in ${PBI_MKPORTAFTER}
+	for port in `echo ${PBI_MKPORTAFTER} | awk 1 ORS=' '`
 	do
   		# Cleanup $port
   		echo $port | grep -q "/$"
@@ -1235,6 +1246,7 @@ make_pbi_index() {
 			skip=1
 			break
 		fi
+		_MKPA="$_MKPA $port"
 	done
 	if [ $skip -eq 1 ] ; then continue ; fi
 
@@ -1250,7 +1262,7 @@ make_pbi_index() {
 	fi
 
 	# Save this to the temporary INDEX file
-	echo "PBI=${PBI_MAKEPORT}${d}${PBI_PROGNAME}${d}${PBI_MKPORTAFTER} ${PBI_MKPORTBEFORE}${d}${PBI_PROGAUTHOR}${d}${PBI_PROGWEB}${d}${PBI_LICENSE}${d}${PBI_PROGTYPE}${d}${PBI_CATEGORY}${d}${PBI_TAGS}${d}${PBI_MAINTAINER}${d}${PBI_SHORTDESC}${d}${PBI_DESC}${d}${PBI_SCREENSHOTS}${d}${PBI_RELATED}${d}${PBI_PLUGINS}${d}${PBI_CONTAINER}${d}" >> ${tI}
+	echo "PBI=${PBI_MAKEPORT}${d}${PBI_PROGNAME}${d}${_MKPA} ${_MKPB}${d}${PBI_PROGAUTHOR}${d}${PBI_PROGWEB}${d}${PBI_LICENSE}${d}${PBI_PROGTYPE}${d}${PBI_CATEGORY}${d}${PBI_TAGS}${d}${PBI_MAINTAINER}${d}${PBI_SHORTDESC}${d}${PBI_DESC}${d}${PBI_SCREENSHOTS}${d}${PBI_RELATED}${d}${PBI_PLUGINS}${d}${PBI_CONTAINER}${d}" >> ${tI}
 
    done
 
@@ -3285,7 +3297,7 @@ do_pbid() {
 		qslp=0
 
 		# Check if we have any out of date index files to update
-		check_update_index "${_iMd5}"
+		check_update_index
 		if [ $? -eq 1 ] ; then qslp=1; fi
 
 		# Check if we should rotate the logfile
