@@ -629,6 +629,7 @@ init_vars() {
 	PBI_MAKEOPTS=""
 	PBI_MKPORTBEFORE=""
 	PBI_MKPORTAFTER=""
+	PBI_ORIGIN=""
 	PBI_PORTSDIR=""
 	PBI_PROGAUTHOR=""
 	PBI_PROGMDATE=""
@@ -685,13 +686,13 @@ rm_tmpdir() {
 load_pbi_conffile() {
   	if [ ! -d "${PBI_CONFDIR}" ] ; then return 0 ; fi
   	if [ -e "${PBI_CONFDIR}/${PBI_CONFFILE}" ] ; then
-		unset PBI_MAKEPORT PBI_BUILDKEY PBI_REQUIRESROOT PBI_PROGNAME PBI_PROGWEB PBI_PROGAUTHOR PBI_PROGICON PBI_MKPORTBEFORE PBI_MKPORTAFTER PBI_MAKEOPTS PBI_EXCLUDELIST PBI_AB_PRIORITY PBI_AB_NOTMPFS PBI_PROGREVISION PBI_PROGREVISION PBI_AB_NOPKGBUILD
+		unset PBI_MAKEPORT PBI_BUILDKEY PBI_REQUIRESROOT PBI_PROGNAME PBI_PROGWEB PBI_PROGAUTHOR PBI_PROGICON PBI_MKPORTBEFORE PBI_MKPORTAFTER PBI_MAKEOPTS PBI_EXCLUDELIST PBI_AB_PRIORITY PBI_AB_NOTMPFS PBI_PROGREVISION PBI_PROGREVISION PBI_AB_NOPKGBUILD PBI_ORIGIN
 		. ${PBI_CONFDIR}/${PBI_CONFFILE}
 
 		# Remove any trailing '/' from PBI_MAKEPORT
-		echo $PBI_MAKEPORT | grep -q "/$"
+		echo $PBI_ORIGIN | grep -q "/$"
 		if [ $? -eq 0 ] ; then
-			PBI_MAKEPORT="`echo $PBI_MAKEPORT | sed 's|/$||g'`"
+			PBI_ORIGIN="`echo $PBI_ORIGIN | sed 's|/$||g'`"
 		fi
 	fi
 }
@@ -707,19 +708,19 @@ get_pbi_progversion() {
 	if [ -n "${PBI_PROGVERSION}" ] ; then return 0 ; fi
 
   	# Remove any trailing '/'
-  	echo $PBI_MAKEPORT | grep -q "/$"
+  	echo $PBI_ORIGIN | grep -q "/$"
   	if [ $? -eq 0 ] ; then
-     		PBI_MAKEPORT="`echo $PBI_MAKEPORT | sed 's|/$||g'`"
+     		PBI_ORIGIN="`echo $PBI_ORIGIN | sed 's|/$||g'`"
   	fi
 
 	# Check first if we have this pkg in PKGNG
 	if [ -n "$PBI_PKGNGBUILD" -a -z "$PBI_AB_NOPKGBUILD" ] ; then
-		testPkgVer="`pkg-static rquery '%v' ${PBI_MAKEPORT}`"
+		testPkgVer="`pkg-static rquery '%v' ${PBI_ORIGIN}`"
 		if [ -z "$testPkgVer" ] ; then
 			# Try one more time, just in case PKGNG was busy, silly database locking
 			sleepRand="`jot -r 1 1 90`"
 			sleep $sleepRand
-			testPkgVer="`pkg-static rquery '%v' ${PBI_MAKEPORT}`"
+			testPkgVer="`pkg-static rquery '%v' ${PBI_ORIGIN}`"
 		fi
 		if [ -n "$testPkgVer" ] ; then
 			PBI_PROGVERSION="$testPkgVer"
@@ -730,16 +731,16 @@ get_pbi_progversion() {
 			export PBI_PROGVERSION
 			return 0
 		fi
-		exit_err "Failed to get PBI_PROGVERSION for ${PBI_MAKEPORT}"
+		exit_err "Failed to get PBI_PROGVERSION for ${PBI_ORIGIN}"
 	fi
 
 	# Get the version from ports
-	if [ -z "${PBI_PROGVERSION}" -a -n "${PORTSDIR}" -a -n "${PBI_MAKEPORT}" ] ; then
-		PORTVER="`make -C ${PORTSDIR}/${PBI_MAKEPORT} -V DISTVERSION PORTSDIR=${PORTSDIR} 2>/dev/null`"
+	if [ -z "${PBI_PROGVERSION}" -a -n "${PORTSDIR}" -a -n "${PBI_ORIGIN}" ] ; then
+		PORTVER="`make -C ${PORTSDIR}/${PBI_ORIGIN} -V DISTVERSION PORTSDIR=${PORTSDIR} 2>/dev/null`"
 
   		# Check if we have a portrevision to use in version number
   		PORTREV=""
-  		PORTREV="`make -C ${PORTSDIR}/${PBI_MAKEPORT} -V PORTREVISION PORTSDIR=${PORTSDIR} 2>/dev/null`"
+  		PORTREV="`make -C ${PORTSDIR}/${PBI_ORIGIN} -V PORTREVISION PORTSDIR=${PORTSDIR} 2>/dev/null`"
   		if [ -n "${PORTREV}" -a "${PORTREV}" != "0" ]
  		then
 			PBI_PROGVERSION="${PORTVER}_${PORTREV}"
@@ -749,10 +750,10 @@ get_pbi_progversion() {
 
 		if [ -z "${PBI_PROGVERSION}" ] ; then
 			echo "Warning: Unable to set PBI_PROGVERSION with:"
-		        echo "make -C ${PORTSDIR}/${PBI_MAKEPORT} -V DISTVERSION PORTSDIR=${PORTSDIR}"
+		        echo "make -C ${PORTSDIR}/${PBI_ORIGIN} -V DISTVERSION PORTSDIR=${PORTSDIR}"
 		fi
 	else
-		echo "PBI_PROGVERSION - $PBI_PROGVERSION - PORTSDIR - ${PORTSDIR} - $PBI_MAKEPORT - $PBI_MAKE_PORT - pbi - $pbi"
+		echo "PBI_PROGVERSION - $PBI_PROGVERSION - PORTSDIR - ${PORTSDIR} - $PBI_ORIGIN - $PBI_MAKE_PORT - pbi - $pbi"
 		exit_err "Failed to locate PBI_PROGVERSION"
 	fi
 
@@ -771,11 +772,11 @@ get_pbi_progname() {
 		return 0
 	fi
 
-	if [ -z "${PBI_PROGNAME}" -a -n "${PORTSDIR}" -a -n "${PBI_MAKEPORT}" ] ; then
+	if [ -z "${PBI_PROGNAME}" -a -n "${PORTSDIR}" -a -n "${PBI_ORIGIN}" ] ; then
 		# Get the proper package name from the prefix + name + suffix
-		local pkgPrefix="`make -C ${PORTSDIR}/${PBI_MAKEPORT} -V PKGNAMEPREFIX PORTSDIR=${PORTSDIR}`"
-		local pkgName="`make -C ${PORTSDIR}/${PBI_MAKEPORT} -V PORTNAME PORTSDIR=${PORTSDIR}`"
-		local pkgSuffix="`make -C ${PORTSDIR}/${PBI_MAKEPORT} -V PKGNAMESUFFIX PORTSDIR=${PORTSDIR}`"
+		local pkgPrefix="`make -C ${PORTSDIR}/${PBI_ORIGIN} -V PKGNAMEPREFIX PORTSDIR=${PORTSDIR}`"
+		local pkgName="`make -C ${PORTSDIR}/${PBI_ORIGIN} -V PORTNAME PORTSDIR=${PORTSDIR}`"
+		local pkgSuffix="`make -C ${PORTSDIR}/${PBI_ORIGIN} -V PKGNAMESUFFIX PORTSDIR=${PORTSDIR}`"
 		PBI_PROGNAME="${pkgPrefix}${pkgName}${pkgSuffix}"
 	else
 		exit_err "Failed to locate PBI_PROGNAME"
@@ -856,60 +857,59 @@ make_pbi_index() {
    if [ ! -e "PBI-categories" ] ; then
       exit_err "No PBI-categories file.. Is this a modules directory?"
    fi
-   if [ -d "PBI-icons" ] ; then
-      echo "Removing old PBI-icons.."
-      rm -rf PBI-icons
-   fi
+
+   # Update PKGNG repo
+   pkg-static update
+
+   echo "Building PBI-INDEX... This may take a few moments..."
 	
    # Set our delimiter and temp INDEX files
    d="::::"
    tI=".INDEX.$$"
-   tIco=".icons.$$"
    touch $tI
-   mkdir $tIco
 
    for pbi in `find . -type f -name "${PBI_CONFFILE}" | grep -v '\.svn' | grep -v '\.git' | sort`
    do
 	# Figure out the target port for this build
-	unset PBI_MAKEPORT PBI_BUILDKEY PBI_PROGVERSION PBI_REQUIRESROOT PBI_PROGNAME PBI_PROGWEB PBI_PROGAUTHOR PBI_PROGICON PBI_MKPORTBEFORE PBI_MKPORTAFTER PBI_MAKEOPTS PBI_EXCLUDELIST PBI_AB_PRIORITY PBI_AB_NOTMPFS PBI_PROGREVISION PBI_AB_NOPKGBUILD PBI_SCREENSHOTS PBI_RELATED PBI_PLUGINS PBI_CONTAINER PBI_DESC PBI_SHORTDESC
+	unset PBI_MAKEPORT PBI_BUILDKEY PBI_PROGVERSION PBI_REQUIRESROOT PBI_PROGNAME PBI_PROGWEB PBI_PROGAUTHOR PBI_PROGICON PBI_MKPORTBEFORE PBI_MKPORTAFTER PBI_MAKEOPTS PBI_EXCLUDELIST PBI_AB_PRIORITY PBI_AB_NOTMPFS PBI_PROGREVISION PBI_AB_NOPKGBUILD PBI_SCREENSHOTS PBI_RELATED PBI_PLUGINS PBI_CONTAINER PBI_DESC PBI_SHORTDESC PBI_ORIGIN
 
 	. ${pbi}
 
 	_cd=$(dirname $pbi | sed 's|./||')
 	PBI_CONFDIR="$_cd"
 
-	# Make sure PBI_MAKEPORT is set
-	if [ -z "${PBI_MAKEPORT}" ] ; then
-		PBI_MAKEPORT=`echo $pbi | sed 's|./||'`
-		export PBI_MAKEPORT
+	# Make sure PBI_ORIGIN is set
+	if [ -z "${PBI_ORIGIN}" ] ; then
+		PBI_ORIGIN=`echo $pbi | sed 's|./||'`
+		export PBI_ORIGIN
 	fi	
 
   	# Remove any trailing '/'
-  	echo $PBI_MAKEPORT | grep -q "/$"
+  	echo $PBI_ORIGIN | grep -q "/$"
   	if [ $? -eq 0 ] ; then 
-		PBI_MAKEPORT="`echo $PBI_MAKEPORT | sed 's|/$||g'`"
+		PBI_ORIGIN="`echo $PBI_ORIGIN | sed 's|/$||g'`"
   	fi
 	
 	# Check for missing port target
-	if [ -z "$PBI_MAKEPORT" ] ; then
-		#echo "Warning: Missing PBI_MAKEPORT for ${pbi}"
+	if [ -z "$PBI_ORIGIN" ] ; then
+		echo "Warning: Missing PBI_ORIGIN for ${pbi}"
 		continue
 	fi
 
 	# Make sure this PBI exists in the repo
-	pkg-static rquery '%n' $PBI_MAKEPORT >/dev/null 2>/dev/null
+	pkg-static rquery -U '%n' $PBI_ORIGIN >/dev/null 2>/dev/null
 	if [ $? -ne 0 ] ; then 
-		echo "Warning: Package missing for $PBI_CONFDIR ($PBI_MAKEPORT)"
+		echo "Warning: Origin package missing for $PBI_CONFDIR ($PBI_ORIGIN)"
 		continue
 	fi
 
 	# Git rid of extra spaces
-	local _MKPB=""
-	local _MKPA=""
+	local _PKGOTHER=""
+	local _PKGCONTAINER=""
 
-	# Check that all the required packages are available
+	# Check that all the other packages required are available
 	skip=0
-	for port in `echo ${PBI_MKPORTBEFORE} | awk 1 ORS=' '`
+	for port in `echo ${PBI_OTHERPKGS} | awk 1 ORS=' '`
 	do
   		# Cleanup $port
   		echo $port | grep -q "/$"
@@ -917,15 +917,17 @@ make_pbi_index() {
   		echo $port | grep -q "^/"
   		if [ $? -eq 0 ] ; then port="`echo $port | sed 's|^/||g'`"; fi
 
-		pkg-static rquery '%v' ${port} >/dev/null 2>/dev/null
+		pkg-static rquery -U '%v' ${port} >/dev/null 2>/dev/null
 		if [ $? -ne 0 ] ; then
-			echo "Warning: Package missing for $PBI_CONFDIR ($port)"
+			echo "Warning: Required package missing for $PBI_CONFDIR ($port)"
 			skip=1
 			break
 		fi
-		_MKPB="$_MKPB $port"
+		_PKGOTHER="$_PKGOTHER $port"
 	done
-	for port in `echo ${PBI_MKPORTAFTER} | awk 1 ORS=' '`
+
+	# Check that packages required to create a container are available
+	for port in `echo ${PBI_CONTAINERPKGS} | awk 1 ORS=' '`
 	do
   		# Cleanup $port
   		echo $port | grep -q "/$"
@@ -933,29 +935,21 @@ make_pbi_index() {
   		echo $port | grep -q "^/"
   		if [ $? -eq 0 ] ; then port="`echo $port | sed 's|^/||g'`"; fi
 
-		pkg-static rquery '%v' ${port} >/dev/null 2>/dev/null
+		pkg-static rquery -U '%v' ${port} >/dev/null 2>/dev/null
 		if [ $? -ne 0 ] ; then
-			echo "Warning: Package missing for $PBI_CONFDIR ($port)"
-			skip=1
+			echo "Warning: Container Package missing for $PBI_CONFDIR ($port)"
+			PBI_CONTAINER="NO"
 			break
 		fi
-		_MKPA="$_MKPA $port"
+		_PKGCONTAINER="$_PKGCONTAINER $port"
 	done
 	if [ $skip -eq 1 ] ; then continue ; fi
 
 	# Load any extra meta-data from the package
 	load_pkg_metadata
 
-	# Massage the descriptions to use html
-	if [ -n "$PBI_PROGICON" ] ; then
-		if [ -e "${PBI_CONFDIR}/resources/$PBI_PROGICON" ] ; then
-			pI="`echo $PBI_MAKEPORT | sed 's|^/||g' | sed 's|/|-|g'`.png"
-			cp "${PBI_CONFDIR}/resources/${PBI_PROGICON}" ${tIco}/$pI
-		fi
-	fi
-
 	# Save this to the temporary INDEX file
-	echo "PBI=${PBI_MAKEPORT}${d}${PBI_PROGNAME}${d}${_MKPA} ${_MKPB}${d}${PBI_PROGAUTHOR}${d}${PBI_PROGWEB}${d}${PBI_LICENSE}${d}${PBI_PROGTYPE}${d}${PBI_CATEGORY}${d}${PBI_TAGS}${d}${PBI_MAINTAINER}${d}${PBI_SHORTDESC}${d}${PBI_DESC}${d}${PBI_SCREENSHOTS}${d}${PBI_RELATED}${d}${PBI_PLUGINS}${d}${PBI_CONTAINER}${d}${PBI_CONFDIR}${d}" >> ${tI}
+	echo "PBI=${PBI_ORIGIN}${d}${PBI_PROGNAME}${d}${_PKGOTHER}${d}${PBI_PROGAUTHOR}${d}${PBI_PROGWEB}${d}${PBI_LICENSE}${d}${PBI_PROGTYPE}${d}${PBI_CATEGORY}${d}${PBI_TAGS}${d}${PBI_MAINTAINER}${d}${PBI_SHORTDESC}${d}${PBI_DESC}${d}${PBI_SCREENSHOTS}${d}${PBI_RELATED}${d}${PBI_PLUGINS}${d}${PBI_CONTAINER}${d}${PBI_CONFDIR}${d}${_PKGCONTAINER}${d}" >> ${tI}
 
    done
 
@@ -964,7 +958,6 @@ make_pbi_index() {
 
    # Move the temp index
    mv ${tI} PBI-INDEX
-   mv ${tIco} PBI-icons
 
    # Create the .txz file
    echo "Compressing PBI-INDEX..."
@@ -3069,127 +3062,10 @@ run_pbi_prepkgscript()
 	fi
 }
 
-# Begins the port make
-start_pbi_makeport()
-{
-  	# Remove any trailing '/'
-  	echo $PBI_MAKEPORT | grep -q "/$"
-  	if [ $? -eq 0 ] ; then
-     		PBI_MAKEPORT="`echo $PBI_MAKEPORT | sed 's|/$||g'`"
-  	fi
-
-	do_port_build "${PBI_MAKEPORT}"
-}
-
-# Prune any ports which aren't required for runtime
-start_pbi_prune_ports()
-{
-	if [ "${PBI_PRUNEBUILDPORTS}" = "NO" ] ; then return ; fi
-
-	get_pkgname "${PBI_MAKEPORT}"
-	echo "${PKGNAME}" > /.keepports
-	make -C "${PORTSDIR}/${PBI_MAKEPORT}" PORTSDIR=${PORTSDIR} package-depends | cut -d: -f1 >> /.keepports
-
-	# Do the same for any OTHERPORTS
-	for port in ${PBI_MKPORTBEFORE}
-	do
-                if [ ! -d "${PORTSDIR}/${port}" ] ; then continue ; fi
-		get_pkgname "${port}"
-		echo "${PKGNAME}" >> /.keepports
-		make -C "${PORTSDIR}/${port}" PORTSDIR=${PORTSDIR} package-depends | cut -d: -f1 >> /.keepports
-        done
-
-	for port in ${PBI_MKPORTAFTER}
-	do
-                if [ ! -d "${PORTSDIR}/${port}" ] ; then continue ; fi
-		get_pkgname "${port}"
-		echo "${PKGNAME}" >> /.keepports
-		make -C "${PORTSDIR}/${port}" PORTSDIR=${PORTSDIR} package-depends | cut -d: -f1 >> /.keepports
-        done
-
-	# Don't strip out pkgng
-	pkg info pkg >> /.keepports
-	
-	# Sort and clean the ports
-	cat /.keepports | sort | uniq > /.keepports.tmp
-	mv /.keepports.tmp /.keepports
-
-	# Now remove any unused ports
-	for j in `pkg info -a | cut -d " " -f 1`
-	do
-		grep -q "^${j}" "/.keepports"
-		if [ $? -ne 0 ] ; then 
-			echo "Removing non-required port: ${j}"
-			$PKG_DELETE ${j} 
-		fi
-	done
-}
-
 # Get the full package-name for a target port
 get_pkgname() {
         name="`pkg info -O ${1} | awk '{print $1}'`"
 	PKGNAME="${name}"
-}
-
-# Make any additional required ports 
-start_pbi_mkportbefore()
-{
-	if [ -z "${PBI_MKPORTBEFORE}" ] ; then return ; fi
-	
-	for port in ${PBI_MKPORTBEFORE}
-	do
-  		# Cleanup $port
-  		echo $port | grep -q "/$"
-  		if [ $? -eq 0 ] ; then port="`echo $port | sed 's|/$||g'`"; fi
-  		echo $port | grep -q "^/"
-  		if [ $? -eq 0 ] ; then port="`echo $port | sed 's|^/||g'`"; fi
-
-		if [ -n "$PBI_PKGNGBUILD" ] ; then
-			pkg-static rquery '%v' ${port} >/dev/null 2>/dev/null
-			if [ $? -ne 0 ] ; then
-				exit_err "No package exists for: ${port}"
-			fi
-			do_port_build "${port}"
-			continue
-		fi
-
-		if [ ! -d "/usr/ports/${port}" ] ; then
-			exit_err "/usr/ports/${port} does not exist!"
-		fi
-		do_port_build "${port}"
-	done
-
-}
-
-# Make any additional required ports 
-start_pbi_mkportafter()
-{
-	if [ -z "${PBI_MKPORTAFTER}" ] ; then return ; fi
-	
-	for port in ${PBI_MKPORTAFTER}
-	do
-  		# Cleanup $port
-  		echo $port | grep -q "/$"
-  		if [ $? -eq 0 ] ; then port="`echo $port | sed 's|/$||g'`"; fi
-  		echo $port | grep -q "^/"
-  		if [ $? -eq 0 ] ; then port="`echo $port | sed 's|^/||g'`"; fi
-
-		if [ -n "$PBI_PKGNGBUILD" ] ; then
-			pkg-static rquery '%v' ${port} >/dev/null 2>/dev/null
-			if [ $? -ne 0 ] ; then
-				exit_err "No package exists for: ${port}"
-			fi
-			do_port_build "${port}"
-			continue
-		fi
-
-		# Doing a regular port build
-		if [ ! -d "/usr/ports/${port}" ] ; then
-			exit_err "/usr/ports/${port} does not exist!"
-		fi
-		do_port_build "${port}"
-	done
-
 }
 
 # Function which checks the digital signature of a PBI to match it to a particular repo
@@ -3337,32 +3213,32 @@ get_arch_from_pbi_file()
 load_pkg_metadata()
 {
   	# Remove any trailing '/'
-  	echo $PBI_MAKEPORT | grep -q "/$"
+  	echo $PBI_ORIGIN | grep -q "/$"
   	if [ $? -eq 0 ] ; then
-     		PBI_MAKEPORT="`echo $PBI_MAKEPORT | sed 's|/$||g'`"
+     		PBI_ORIGIN="`echo $PBI_ORIGIN | sed 's|/$||g'`"
   	fi
-  	echo $PBI_MAKEPORT | grep -q "^/"
+  	echo $PBI_ORIGIN | grep -q "^/"
   	if [ $? -eq 0 ] ; then
-		PBI_MAKEPORT="`echo $PBI_MAKEPORT | sed 's|^/||g'`"
+		PBI_ORIGIN="`echo $PBI_ORIGIN | sed 's|^/||g'`"
 	fi
 
 	if [ -z "$PBI_LICENSE" ] ; then
-		PBI_LICENSE="`pkg rquery '%L' ${PBI_MAKEPORT} | head -n 1`"
+		PBI_LICENSE="`pkg rquery '%L' ${PBI_ORIGIN} | head -n 1`"
 	fi
 	if [ -z "$PBI_SHORTDESC" ] ; then
-		PBI_SHORTDESC="`pkg rquery '%c' ${PBI_MAKEPORT} | awk 1 ORS=' ' | sed 's|  |<br>|g' | sed 's|*|-|g'`"
+		PBI_SHORTDESC="`pkg rquery '%c' ${PBI_ORIGIN} | awk 1 ORS=' ' | sed 's|  |<br>|g' | sed 's|*|-|g'`"
 	fi
 	if [ -z "$PBI_MAINTAINER" ] ; then
-		PBI_MAINTAINER="`pkg rquery '%m' ${PBI_MAKEPORT}`"
+		PBI_MAINTAINER="`pkg rquery '%m' ${PBI_ORIGIN}`"
 	fi
 	if [ -z "$PBI_DESC" ] ; then
-		PBI_DESC="`pkg rquery '%e' ${PBI_MAKEPORT} | awk 1 ORS=' ' | sed 's|  |<br>|g' | sed 's|*|-|g'`"
+		PBI_DESC="`pkg rquery '%e' ${PBI_ORIGIN} | awk 1 ORS=' ' | sed 's|  |<br>|g' | sed 's|*|-|g'`"
 	fi
 	if [ -z "$PBI_PROGWEB" ] ; then
-		PBI_PROGWEB="`pkg rquery '%w' ${PBI_MAKEPORT}`"
+		PBI_PROGWEB="`pkg rquery '%w' ${PBI_ORIGIN}`"
 	fi
 	if [ -z "$PBI_CATEGORY" ] ; then
-		PBI_CATEGORY="`pkg rquery '%C' ${PBI_MAKEPORT} | head -n 1`"
+		PBI_CATEGORY="`pkg rquery '%C' ${PBI_ORIGIN} | head -n 1`"
 	fi
 	if [ -z "$PBI_PROGTYPE" ] ; then
 		PBI_PROGTYPE="Text"
