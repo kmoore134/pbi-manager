@@ -1056,6 +1056,7 @@ pbi_add_init() {
 		check_agree_lic
 		check_existing_pbi
 		do_pbi_add
+
 		exit_trap
 	else
 		# We are assembling this PBI from packages
@@ -1067,7 +1068,10 @@ pbi_add_init() {
 			check_pbi_info_display
 			exit_trap
 		fi
+
 		do_pbi_pkg_build
+		pbi_add_register_app
+
 		exit_trap
 	fi
 
@@ -1602,11 +1606,9 @@ get_dbdir() {
 # Register this app as installed
 pbi_add_register_app() {
 	if [ ! -d "$PBI_DBAPPDIR" ] ; then mkdir -p ${PBI_DBAPPDIR} ; fi
-        open_header_tmp
 	get_dbdir
 	dir="${APPDBDIR}"
 
-	# Make sure we remove any existing meta-data if forcing an installation
 	if [ "$PBI_FORCEADD" = "YES" ] ; then
 	  	tmp="`echo ${PBI_PROGNAME} | tr -d ' ' | tr '[A-Z]' '[a-z]'`"
           	rm -rf ${PBI_DBAPPDIR}/${tmp}-*-${PBI_APPARCH}
@@ -1614,11 +1616,9 @@ pbi_add_register_app() {
 
 	mkdir -p "${dir}"
 	
-        tar cf - -C "${PBI_HEADER_TMPDIR}" . 2>/dev/null | tar xvf - -C "$dir" 2>/dev/null
-
 	echo "${PBI_PROGDIRPATH}" >${dir}/pbi_installedpath
-
-        delete_header_tmp
+	echo "${PBI_NAME}" >${dir}/pbi_progname
+	echo "${PBI_PROGVERSION}" >${dir}/pbi_progver
 
 	echo "Installed: ${PBI_PROGNAME}-${PBI_PROGVERSION}"
 }
