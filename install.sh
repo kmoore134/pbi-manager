@@ -59,9 +59,7 @@ done
 
 if [ -d "${LB}/share/pbi-manager" ] ; then rm -rf "${LB}/share/pbi-manager" ; fi
 
-# Copy over the examples
 mkdir -p ${LB}/share/pbi-manager/ >/dev/null 2>/dev/null
-cp -r ${DIR}/module-examples ${LB}/share/pbi-manager/
 
 # Copy the icon
 mkdir -p ${LB}/share/pbi-manager/icons >/dev/null 2>/dev/null
