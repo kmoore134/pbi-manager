@@ -31,6 +31,7 @@ usage: `basename $0` [options] pbi
 Options:
   -f             -- Force install, overwriting existing installation
   -i             -- Display information about this PBI
+  -j <jail> 	 -- Install into jail
   -l             -- Display LICENSE text
   -v             -- Enable verbose output
 
@@ -44,6 +45,7 @@ usage: `basename $0` [options] pbi
 
 Options:
   -f             -- Force removing a PBI / package
+  -j <jail> 	 -- Delete from jail
   -v             -- Enable verbose output
 
 EOF
@@ -84,6 +86,7 @@ usage: `basename $0` [options] pbi
 
 Options:
   -a             -- Show all available PBIs
+  -j <jail> 	 -- List packages from specified jail
   -v             -- Enable verbose output
 
 EOF
@@ -97,6 +100,9 @@ parse_delete_pbi_cmdline() {
                 -v)     PBI_VERBOSE="YES" 
                         ;;
                 -f)     PBI_FORCEDELETE="YES" 
+                        ;;
+                -j)     shift
+			set_jail_mode "$1"
                         ;;
                  *)     if [ $# -gt 1 ]; then usage_delete_pbi; fi
 			load_pbi_info_index "$1"
@@ -174,6 +180,9 @@ parse_info_pbi_cmdline() {
                 case "$1" in
 		-a) 	PBI_INFOINDEX="YES"	
 			;;
+                -j)     shift
+			set_jail_mode "$1"
+                        ;;
                 -v)     PBI_VERBOSE="YES" 
                         ;;
                  *)
@@ -198,6 +207,9 @@ parse_add_pbi_cmdline() {
                         ;;
                 -i)     PBI_ADD_INFODISPLAY="YES" 
                         ;;
+                -j)     shift
+			set_jail_mode "$1"
+                        ;;
             --meta)     PBI_ADD_METADISPLAY="YES" 
                         ;;
                 -l)     PBI_ADD_LICDISPLAY="YES" 
@@ -220,6 +232,30 @@ parse_add_pbi_cmdline() {
         done
 
         if [ -z "${PBI_FILENAME}" ]; then usage_add_pbi ; fi
+}
+
+# Make sure this is a valid jail
+set_jail_mode()
+{
+	# Check if this is a JID
+	jls | grep -v "JID" | tr -s ' ' | sed 's,^[ \t]*,,' | grep -q "^$1 "
+	if [ $? -eq 0 ] ; then
+		PBI_INJAIL="$1"
+		PKG_FLAG="-j $1"
+		return
+	fi
+	
+	# Is this a hostname?
+	line=`jls | grep -v "JID" | tr -s ' ' | sed 's,^[ \t]*,,' | grep -w "$1" | head -n 1`
+	if [ -n "$line" ] ; then
+		PBI_INJAIL="`echo $line | awk '{print $1}'`"	
+		PKG_FLAG="-j $PBI_INJAIL"
+		PBI_INJAIL="$1"
+		return
+	fi
+
+	exit_err "No such jail: $1"
+
 }
 
 # Make some of our required PBI dirs
@@ -361,7 +397,7 @@ make_pbi_index() {
    fi
 
    # Update PKGNG repo
-   pkg-static update
+   pkg-static update 2>/dev/null
 
    echo "Building PBI-INDEX... This may take a few moments..."
 	
@@ -488,7 +524,7 @@ load_pbi_info_index()
 	PBI_PLUGINS=`echo $line | awk -F:::: '{print $15}'`
 	PBI_CONFDIR=`echo $line | awk -F:::: '{print $16}'`
 	PBI_APPARCH=`uname -m`
-	PBI_PROGVERSION=`pkg-static rquery '%v' $PBI_ORIGIN`
+	PBI_PROGVERSION=`pkg-static ${PKG_FLAG} rquery '%v' $PBI_ORIGIN`
 	
 	return 0
 }
@@ -522,7 +558,7 @@ do_pbi_pkg_add() {
 	# See if this origin is already installed
 	for i in $_ins
 	do
-		pkg-static query '%n' $i >/dev/null 2>/dev/null
+		pkg-static ${PKG_FLAG} query '%n' $i >/dev/null 2>/dev/null
 		if [ $? -eq 0 ] ; then continue ; fi
 		
 		# Not installed! Lets Add it to the list
@@ -545,7 +581,7 @@ do_pbi_pkg_add() {
   	fi
 
 	# Now go forth and install these packages
-	pkg install -yUf ${_toIns}
+	pkg ${PKG_FLAG} install -yUf ${_toIns}
 	if [ $? -ne 0 ] ; then
 		exit_err "Failed installing: $PBI_FILENAME"
 	fi
@@ -645,7 +681,7 @@ pbi_delete_init() {
 do_pbi_delete() {
 
 	# First confirm this package is installed
-	pkg-static query '%n' $PBI_ORIGIN 2>/dev/null >/dev/null
+	pkg-static ${PKG_FLAG} query '%n' $PBI_ORIGIN 2>/dev/null >/dev/null
 	if [ $? -ne 0 ] ; then
 		exit_err "$PBI_DELETENAME is not installed!"
 	fi
@@ -657,19 +693,19 @@ do_pbi_delete() {
 		pOpts="-y"
 	fi
 
-	pkg-static delete $pOpts -R $PBI_ORIGIN
+	pkg-static ${PKG_FLAG} delete $pOpts -R $PBI_ORIGIN
 
 	# Check if we can remove any plugins
 	for i in $PBI_PLUGINS
 	do
-		pkg-static delete ${pOpts} $i
+		pkg-static ${PKG_FLAG} delete ${pOpts} $i
 		if [ $? -eq 0 ] ; then
 			echo "WARNING: Did not remove optional plugin ${i}"
 		fi
 	done
 	
 	# Do any package autoremove cleanup
-	pkg-static autoremove -y
+	pkg-static ${PKG_FLAG} autoremove -y
 		
 	exit_trap
 }
@@ -686,7 +722,7 @@ check_preremove_script() {
 
 is_pbi_installed() {
 	# check for pkgng version
-	pkg-static query '%n' $1 >/dev/null 2>/dev/null
+	pkg-static ${PKG_FLAG} query '%n' $1 >/dev/null 2>/dev/null
 	if [ $? -eq 0 ] ; then return 0; fi
 	return 1
 }
@@ -901,7 +937,7 @@ do_pbi_info() {
 		# Next list package PBIs
 		echo "PBIs installed into system"
 		echo "-------------------------------"
-		for pkgori in `pkg query '%o'`
+		for pkgori in `pkg ${PKG_FLAG} query '%o'`
 		do
 
 			line=`grep "^PBI=${pkgori}::::" $PBI_INDEXDB`
@@ -909,7 +945,7 @@ do_pbi_info() {
 
 			PBI_PROGNAME=`echo $line | awk -F:::: '{print $2}'`
 			PBI_PROGNAME=`echo ${PBI_PROGNAME} | tr -d ' ' | tr '[A-Z]' '[a-z]'`
-			PBI_PROGVERSION=`pkg-static query '%v' $pkgori`
+			PBI_PROGVERSION=`pkg-static ${PKG_FLAG} query '%v' $pkgori`
 			if [ "$PBI_VERBOSE" = "YES" ] ; then
 				PBI_PKGOTHER=`echo $line | awk -F:::: '{print $3}'`
 				PBI_PROGAUTHOR=`echo $line | awk -F:::: '{print $4}'`
@@ -949,7 +985,7 @@ do_index_listing()
 	echo "----------------------------------------------------------------"
 
 	# Build list of all packages / origins
-	pkg-static rquery '%o %n-%v' >${PBI_TMPDIR}/.pList
+	pkg-static ${PKG_FLAG} rquery '%o %n-%v' >${PBI_TMPDIR}/.pList
 
 	while read line
 	do
@@ -976,7 +1012,7 @@ pad_var() {
 
 # Get the full package-name for a target port
 get_pkgname() {
-        name="`pkg info -O ${1} | awk '{print $1}'`"
+        name="`pkg ${PKG_FLAG} info -O ${1} | awk '{print $1}'`"
 	PKGNAME="${name}"
 }
 
