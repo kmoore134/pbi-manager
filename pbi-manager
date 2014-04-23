@@ -29,42 +29,10 @@ usage_add_pbi() {
 usage: `basename $0` [options] pbi
 
 Options:
-  -e             -- Extract Only
   -f             -- Force install, overwriting existing installation
-  -g             -- Get and show path to icon / images for gui installer
   -i             -- Display information about this PBI
   -l             -- Display LICENSE text
-  -o outdir      -- Extract to target directory 
   -v             -- Enable verbose output
-  --container    -- Install packages into stand-alone PBI container
-  --checkscript  -- Display any custom install / removal scripts
-  --licagree     -- Agree to LICENSE terms for installation
-  --meta         -- Display any custom meta-file supplied with the PBI
-  --no-checksum  -- Skip the checksum verification during installation
-  --no-checksig  -- Ignore signature verification and force install
-
-EOF
-        exit_trap
-}
-
-usage_create_pbi() {
-        cat <<EOF
-usage: `basename $0` [options] pbidir
-
-Options:
-  -a author    -- Application Author
-  -b 	       -- Make a backup of an already installed PBI
-  -c confdir   -- PBI configuration meta-data directory
-  -d portdir   -- Use different ports dir (Default: /usr/ports)
-  -i icon      -- Application Icon, relative to pbidir/
-  -n name      -- Application Name
-  -o outdir    -- Output directory for finished .pbi file
-  -p port      -- Pull name / version from FreeBSD Port
-  -r version   -- Application Version
-  -w url       -- Application Website
-  --meta file  -- Include the specified <file> inside the PBI header
-		  for display with "pbi_add --meta"
-  --sign key   -- Sign the PBI with specified openssl key
 
 EOF
         exit_trap
@@ -75,7 +43,6 @@ usage_delete_pbi() {
 usage: `basename $0` [options] pbi
 
 Options:
-  -c             -- Delete the container version of the PBI
   -f             -- Force removing a PBI / package
   -v             -- Enable verbose output
 
@@ -103,11 +70,9 @@ Options:
   add-desktop          -- Add desktop icons
   add-menu             -- Add menu icons
   add-mime             -- Add mime registration
-  add-pathlnk          -- Add PATH links
   del-desktop          -- Remove desktop icons
   del-menu             -- Remove menu icons
   del-mime             -- Remove mime registration
-  del-pathlnk          -- Remove PATH links
 
 EOF
         exit_trap
@@ -131,48 +96,19 @@ parse_delete_pbi_cmdline() {
                 case "$1" in
                 -v)     PBI_VERBOSE="YES" 
                         ;;
-                -c)     PBI_CONTAINER="YES" 
-                        ;;
                 -f)     PBI_FORCEDELETE="YES" 
                         ;;
                  *)     if [ $# -gt 1 ]; then usage_delete_pbi; fi
-			if [ "$PBI_CONTAINER" != "YES" ] ;then
-				load_pbi_info_index "$1"
-				if [ $? -ne 0 ] ; then
-					exit_err "No such PBI: $1"
-				fi
-                        	PBI_DELETENAME="$1"
-			else
-				if [ ! -e "${PBI_DBAPPDIR}/${1}" ] ; then
-					find_pbi_namematch "$1"
-					if [ -z "$PBI_NAMEMATCH" ] ; then
-                                		exit_err "can't find installed pbi (${1})"
-					fi
-                        		PBI_DELETENAME="$PBI_NAMEMATCH"
-				else
-                        		PBI_DELETENAME="$1"
-                        	fi
+			load_pbi_info_index "$1"
+			if [ $? -ne 0 ] ; then
+				exit_err "No such PBI: $1"
 			fi
+                       	PBI_DELETENAME="$1"
                         ;;
                 esac
                 shift
         done
 	if [ -z "${PBI_DELETENAME}" ];then usage_delete_pbi; fi
-}
-
-find_pbi_namematch()
-{
-	_fLow="`echo ${1} | tr '[:upper:]' '[:lower:]' | sed 's| ||g'`"
-	PBI_NAMEMATCH=""
-	for i in `ls -d ${PBI_DBAPPDIR}/* 2>/dev/null`
-	do
-		if [ ! -e "$i/pbi_name" ] ; then continue ; fi
-		_tLow="`cat $i/pbi_name | tr '[:upper:]' '[:lower:]' | sed 's| ||g'`"
-		if [ "$_tLow" = "$_fLow" ] ; then 
-			PBI_NAMEMATCH="`basename ${i}`"
-			break
-		fi
-	done
 }
 
 # Parse the command line for icon
@@ -244,15 +180,7 @@ parse_info_pbi_cmdline() {
                         ;;
                  *)
                         if [ $# -gt 1 ]; then usage_info_pbi; fi
-			if [ ! -e "${PBI_DBAPPDIR}/${1}" ] ; then
-				find_pbi_namematch "$1"
-				if [ -z "$PBI_NAMEMATCH" ] ; then
-                                	exit_err "can't find installed pbi (${1})"
-				fi
-                        	PBI_INFONAME="$PBI_NAMEMATCH"
-			else
-                        	PBI_INFONAME="$1"
-                        fi
+                        PBI_INFONAME="$1"
                         ;;
                 esac
                 shift
@@ -281,17 +209,12 @@ parse_add_pbi_cmdline() {
                         ;;
                 -v)     PBI_VERBOSE="YES" 
                         ;;
-       --container)     PBI_DOCONTAINER="YES" ;;
      --checkscript)     PBI_CHECKSCRIPTS="YES" ;;
         --licagree)     PBI_LICAGREE="YES" ;;
      --no-checksum)     PBI_SKIPCHECKSUM="YES" ;;
      --no-checksig)     PBI_SKIPSIGVERIFY="YES" ;;
                  *)
                         if [ $# -gt 1 ]; then usage_add_pbi; fi
-			# If there is no file we are doing pkg install
-                        if [ -e "${1}" ] ; then
-				PBI_DOCONTAINER="YES"
-			fi
                         PBI_FILENAME="$1"
                         ;;
                 esac
@@ -299,181 +222,14 @@ parse_add_pbi_cmdline() {
         done
 
         if [ -z "${PBI_FILENAME}" ]; then usage_add_pbi ; fi
-
-	# If this isn't a stand-alone container version we can stop here
-	if [ "$PBI_DOCONTAINER" != "YES" ] ; then return; fi
-
-	# Are we assembling this PBI?
-	echo "$PBI_FILENAME" | grep -q "\.pbi"
-	if [ $? -ne 0 -o ! -e "$PBI_FILENAME" ] ; then return; fi
-
-        # Load all the information about this PBI
-        load_info_from_header
-
-        if [ -z "${PBI_ORIGPROGDIRPATH}" ]; then usage_add_pbi ; fi
-
-        # Lastly set PBI_PROGDIRNAME
-        PBI_PROGDIRNAME="`echo ${PBI_ORIGPROGDIRPATH} | rev | cut -d '/' -f 1 | rev`"
-
-
-	if [ "${PBI_EXTRACTONLY}" = "YES" ] ; then
-		# If extracting to a alt-outdir, set it now
-		PBI_PROGDIRPATH="`pwd`/${PBI_PROGDIRNAME}"
-
-		if [ -n "${PBI_ALTEXTRACT_DIR}" ]; then
-			PBI_PROGDIRPATH="${PBI_ALTEXTRACT_DIR}/${PBI_PROGDIRNAME}"
-		fi
-	else
-		# Set the installation dir
-		PBI_PROGDIRPATH="${PBI_ORIGPROGDIRPATH}"
-	fi
-}
-
-# Parse the command line
-parse_create_pbi_cmdline() {
-        while [ $# -gt 0 ]; do
-                case "$1" in
-                -a)	if [ $# -eq 1 ]; then usage_create_pbi; fi
-                        shift; PBI_CAUTHOR="$1"
-                        ;;
-                -b)     PBI_CBACKUP="YES"
-                        ;;
-                -c)	if [ $# -eq 1 ]; then usage_create_pbi; fi
-                        shift; 
-			get_abspath "$1"
-			PBI_CONFDIR="$_ABSPATH"
-			if [ ! -d "${PBI_CONFDIR}" ] ; then
-				exit_err "Invalid confdir (${PBI_CONFDIR})"
-			fi
-			load_pbi_conffile
-                        ;;
-                -d)	if [ $# -eq 1 ]; then usage_create_pbi; fi
-                        shift; PORTSDIR="$1"
-                        ;;
-               --meta)	if [ $# -eq 1 ]; then usage_create_pbi; fi
-                        shift; PBI_CREATE_USERMETA="$1"
-			if [ ! -e "$PBI_CREATE_USERMETA" ] ; then
-				exit_err "No such file: $PBI_CREATE_USERMETA"
-			fi
-                        ;;
-                -i)	if [ $# -eq 1 ]; then usage_create_pbi; fi
-                        shift; PBI_CICON="$1"
-                        ;;
-                -n)	if [ $# -eq 1 ]; then usage_create_pbi; fi
-                        shift; PBI_CNAME="$1"
-                        ;;
-                -o)	if [ $# -eq 1 ]; then usage_create_pbi; fi
-                        shift; PBI_CREATE_OUTDIR="$1"
-                        ;;
-                -p)	if [ $# -eq 1 ]; then usage_create_pbi; fi
-                        shift; PBI_MAKEPORT="$1"
-                        ;;
-                -r)	if [ $# -eq 1 ]; then usage_create_pbi; fi
-                        shift; PBI_CVERSION="$1"
-                        ;;
-                -w)	if [ $# -eq 1 ]; then usage_create_pbi; fi
-                        shift; PBI_CWEB="$1"
-                        ;;
-            --sign)	if [ $# -eq 1 ]; then usage_create_pbi; fi
-                        shift; PBI_SSLPRIVKEY="$1"
-                        ;;
-                 *)
-                        if [ $# -gt 1 ]; then usage_create_pbi; fi
-			if [ "$PBI_CBACKUP" = "YES" ] ; then
-				if [ ! -e "${PBI_DBAPPDIR}/${1}" ] ; then
-					find_pbi_namematch "$1"
-					if [ -z "$PBI_NAMEMATCH" ] ; then
-                                		exit_err "can't find installed pbi (${1})"
-					fi
-					PBI_CBACKUPTARGET="${PBI_NAMEMATCH}"
-					PBI_PROGDIRPATH="${PBI_NAMEMATCH}"
-				else
-					PBI_CBACKUPTARGET="${1}"
-					PBI_PROGDIRPATH="${1}"
-                        	fi
-			else
-				get_abspath "$1"
-				PBI_PROGDIRPATH="$_ABSPATH"
-                        	if [ ! -d "${PBI_PROGDIRPATH}" ] ; then
-                                	exit_err "Invalid pbidir (${1})"
-                          	fi
-			fi
-                        ;;
-                esac
-                shift
-        done
-
-	# Make sure this port exists
-        if [ -n "${PBI_MAKEPORT}" -a ! -d "${PORTSDIR}/${PBI_MAKEPORT}" ]; then
-		exit_err "No port (${PORTSDIR}/${PBI_MAKEPORT})"
-	fi
-
-	# Load the name / version from specified port
-        if [ -n "${PBI_MAKEPORT}" ]; then
-		get_pbi_progversion
-		get_pbi_progname
-        fi
-
-        if [ -z "${PBI_PROGDIRPATH}" ]; then usage_create_pbi ; fi
-
-	# Remove any trailing '/' from PBI_MAKEPORT
-	echo $PBI_MAKEPORT | grep -q "/$"
-	if [ $? -eq 0 ] ; then
-		PBI_MAKEPORT="`echo $PBI_MAKEPORT | sed 's|/$||g'`"
-	fi
-
-	# Lastly set PBI_PROGDIRNAME
-	PBI_PROGDIRNAME="`echo ${PBI_PROGDIRPATH} | rev | cut -d '/' -f 1 | rev`"
-}
-
-# Override any pbi.conf values with passed command-line values
-parse_cmdline_overrides() {
-	if [ -n "${PBI_CNAME}" ] ; then PBI_PROGNAME="${PBI_CNAME}" ; fi
-	if [ -n "${PBI_CVERSION}" ] ; then PBI_PROGVERSION="${PBI_CVERSION}" ; fi
-	if [ -n "${PBI_CWEB}" ] ; then PBI_PROGWEB="${PBI_CWEB}" ; fi
-	if [ -n "${PBI_CAUTHOR}" ] ; then PBI_PROGAUTHOR="${PBI_CAUTHOR}" ; fi
-	if [ -n "${PBI_CICON}" ] ; then PBI_PROGICON="${PBI_CICON}" ; fi
 }
 
 # Make some of our required PBI dirs
 mk_required_dirs() {
-	if [ ! -d "${PBI_APPDIR}" ] ; then mkdir -p ${PBI_APPDIR} >/dev/null 2>/dev/null ; fi
-	if [ ! -d "${PBI_XDGCFGDIR}" ] ; then mkdir -p ${PBI_XDGCFGDIR} >/dev/null 2>/dev/null ; fi
-	if [ ! -d "${PBI_XDGAPPDIR}" ] ; then mkdir -p ${PBI_XDGAPPDIR} >/dev/null 2>/dev/null ; fi
-	if [ ! -d "${PBI_XDGDIRDIR}" ] ; then mkdir -p ${PBI_XDGDIRDIR} >/dev/null 2>/dev/null ; fi
-	if [ ! -d "${PBI_XDGICONDIR}" ] ; then mkdir -p ${PBI_XDGICONDIR} >/dev/null 2>/dev/null ; fi
-	if [ ! -d "${PBI_XDGMIMEDIR}" ] ; then mkdir -p ${PBI_XDGMIMEDIR} >/dev/null 2>/dev/null ; fi
-	if [ ! -d "${PBI_RCDIR}" ] ; then mkdir -p ${PBI_RCDIR} >/dev/null 2>/dev/null ; fi
-	if [ ! -d "${PBI_BINDIR}" ] ; then mkdir -p ${PBI_BINDIR} >/dev/null 2>/dev/null ; fi
-	if [ ! -d "${PBI_MANDIR}" ] ; then mkdir -p ${PBI_MANDIR} >/dev/null 2>/dev/null ; fi
 	if [ ! -d "${PBI_DBAPPDIR}" ] ; then mkdir -p ${PBI_DBAPPDIR} >/dev/null 2>/dev/null ; fi
-	if [ ! -d "${PBI_DBKEYDIR}" ] ; then mkdir -p ${PBI_DBKEYDIR} >/dev/null 2>/dev/null ; fi
-	if [ ! -d "${PBI_DBMIRRORDIR}" ] ; then mkdir -p ${PBI_DBMIRRORDIR} >/dev/null 2>/dev/null ; fi
 	if [ ! -d "${PBI_DBINDEXDIR}" ] ; then mkdir -p ${PBI_DBINDEXDIR} >/dev/null 2>/dev/null ; fi
 
-	# Set the permissions for directories if we are running as root
-	if [ `id -u` != "0" ] ; then return ; fi
-
-	for cDir in $PBI_APPDIR $PBI_DBAPPDIR $PBI_XDGCFGDIR $PBI_XDGAPPDIR $PBI_XDGDIRDIR $PBI_XDGICONDIR $PBI_XDGMIMEDIR
-	do	
-		chown root:${PBI_INSTALLGROUP} ${cDir}
-		chmod 775 ${cDir}
-	done
-
 }
-
-# Get the absolute path of a dir, even a relative dir. 
-# 'realpath' doesn't work here
-get_abspath() {
-	D=`dirname "$1"`
-	B=`basename "$1"`
-	if [ "$D" = "/" ] ; then
-		_ABSPATH="/$B"
-	else
-		_ABSPATH="`cd \"$D\" 2>/dev/null && pwd || echo \"$D\"`/$B"
-	fi
-}
-
 
 # Initialize some vars
 init_vars() {
@@ -486,36 +242,17 @@ init_vars() {
         PROGBASE=/usr/local
 	SYS_LOCALBASE=/usr/local
 	PBI_SHARE_DIR="${PROGBASE}/share/pbi-manager"
-	if [ -z "${PBI_APPDIR}" -o "`basename $0`" = "pbi_makeport_chroot" ] ; then
-		PBI_APPDIR="/usr/pbi"
-        fi
-	# Set the FreeBSD Major & Release
-  	FBSDREL=`uname -r | cut -d "-" -f 1-2`
-	FBSDMAJOR=`echo $FBSDREL | cut -d "-" -f 1 | cut -d '.' -f 1`
 
-	PBI_WORLDCHROOT="${PBI_APPDIR}/.pbi-world-$ARCH"
-	PBI_AB_BUILDERS=1
-	PBI_XDGCFGDIR="${PBI_APPDIR}/etc/xdg/menus"
-	PBI_XDGAPPDIR="${PBI_APPDIR}/share/applications"
-	PBI_XDGDIRDIR="${PBI_APPDIR}/share/desktop-directories"
-	PBI_XDGICONDIR="${PBI_APPDIR}/share/icons/hicolor"
-	PBI_XDGMIMEDIR="${PBI_APPDIR}/share/mime/packages"
-	PBI_RCDIR="${PBI_APPDIR}/rc.d"
-	PBI_BINDIR="${PBI_APPDIR}/bin"
-	PBI_MANDIR="${PBI_APPDIR}/man"
 	PBI_ETCCONF="${SYS_LOCALBASE}/etc/pbi.conf"
 	PCBSD_ETCCONF="${SYS_LOCALBASE}/etc/pcbsd.conf"
 	PBI_DEFAULT_ICON="${PROGBASE}/share/pbi-manager/icons/default.png"
-	PBI_DEFAULT_ICON_CHROOT="/default.png"
-	PBI_LDCONFIGFILE="${PROGBASE}/etc/ldpbiconfig"
-	PBI_LDCONFIGRC="${PROGBASE}/etc/rc.d/ldpbiconfig"
 
 	# Set the PBI DB dir
 	if [ -z "${PBI_DBDIR}" ] ; then
 		PBI_DBDIR="/var/db/pbi"
 	fi
 	PBI_DBKEYDIR="${PBI_DBDIR}/keys"
-	PROGVERSION="1.0"
+	PROGVERSION="2.0"
 
 	# Load the etc/pbi.conf file
 	load_pbi_etcconf
@@ -525,14 +262,10 @@ init_vars() {
 		PBIDSLEEP="300"	# Amount of time to sleep before waking up pbid
 	fi
 	if [ -z "$PBI_INDEXREFRESH" ] ; then
-		PBI_INDEXREFRESH="12" # Hours to wait until we re-download PBI indexes
-	fi
-	if [ -n "$PBI_MAJORVERSION" ] ; then
-		FBSDMAJOR=${PBI_FBSDMAJOR}
+		PBI_INDEXREFRESH="24" # Hours to wait until we re-download PBI indexes
 	fi
 
 	PBI_LOG_LINES="500"
-	PBI_INSTALLGROUP="operator"
 
 	# What dbus dirs do we parse for setting up services
 	DBUS_SEARCH_DIRS="share/dbus-1 kde4/share/dbus-1 gnome/share/dbus-1"
@@ -544,127 +277,32 @@ init_vars() {
 	MOD_XDGDESK_DIR="xdg-desktop"
 	MOD_XDGMENU_DIR="xdg-menu"
 	MOD_XDGMIME_DIR="xdg-mime"
-	MOD_EXTLINKFILE="external-links"
-	MOD_AUTOEXTLINKFILE=".auto-external-links"
-	PBI_ADD_GUIDISPLAY="NO"
-	PBI_ADD_INFODISPLAY="NO"
-	PBI_ADD_METADISPLAY="NO"
-	PBI_ADD_LICDISPLAY="NO"
-	PBI_APPDESK_DIR=".${MOD_XDGDESK_DIR}"
-	PBI_APPMENU_DIR=".${MOD_XDGMENU_DIR}"
-	PBI_APPMIME_DIR=".${MOD_XDGMIME_DIR}"
 	PBI_BUILD_USERS=""
-	PBI_BUILD_GROUPS=""
-	PBI_INS_USERSFILE=".pbi-uids"
-	PBI_INS_GROUPSFILE=".pbi-gids"
+	PBI_CONFFILE="pbi.conf"
 	PBI_DESKADD="NO"
 	PBI_MENUADD="NO"
 	PBI_MIMEADD="NO"
 	PBI_PATHADD="NO"
 	PBI_DESKDEL="NO"
-	PBI_MAKECONF="/etc/pbi-make.conf"
 	PBI_MENUDEL="NO"
 	PBI_MIMEDEL="NO"
 	PBI_PATHDEL="NO"
 	PBI_DELETENAME=""
-	PBI_FAKEBIN_DIR="bin"
-	PBI_FAKERC_DIR="rc.d"
 	PBI_FILENAME=""
 	PBI_FORCEADD="NO"
 	PBI_INDEXFILE="PBI-INDEX.txz"
 	PBI_INFONAME=""
-	PBI_INS_DESKSCRIPT="install-desktop-icons.sh"
-	PBI_INS_MENUSCRIPT="install-menu-icons.sh"
-	PBI_INS_MIMESCRIPT="install-mime.sh"
-	PBI_INS_PATHSCRIPT="install-pathlinks.sh"
 	PBI_ICDIR="pbi-shared-icons"
 	PBI_LICAGREE="NO"
-	PBI_LICENSEFILE="LICENSE"
-	PBI_USERMETAFILE="metafile"
-	PBI_REMOTEFETCH=""
-	PBI_REMOTEFETCHONLY=""
 	PBI_RESOURCE_DIR="resources"
-	PBI_SS_ICON="__PBI_ICON__"
-	PBI_SS_ARCHIVE="__PBI_ARCHIVE__"
 	PBI_SSLPRIVKEY=""
 	PBI_TMPDIR="/tmp/.PBI.$$"
 	PBI_UPCHECK=""
-	PBI_UNINS_DESKSCRIPT="uninstall-desktop-icons.sh"
-	PBI_UNINS_MENUSCRIPT="uninstall-menu-icons.sh"
-	PBI_UNINS_MIMESCRIPT="uninstall-mime.sh"
-	PBI_UNINS_PATHSCRIPT="uninstall-pathlinks.sh"
 
         # User overridable variables
-	MKDELBUILD=""
-	MKDEBUG=""
-	MKTMPFS=""
-	PBI_AB_ARCHIVENUM=""
-	PBI_AB_CONFDIR=""
-	PBI_AB_HELPS=""
-	PBI_AB_OUTDIR=""
-	PBI_AB_SSLPRIVKEY=""
-	PBI_AB_PRUNE=""
-	PBI_AB_TMPFS=""
-	PBI_BUILDONLY="NO"
-	PBI_CAUTHOR=""
-	PBI_CBACKUP=""
-	PBI_CBACKUPTARGET=""
-	PBI_CHECKSCRIPTS=""
-	PBI_CICON=""
-	PBI_CNAME=""
-        PBI_CONFDIR=""
-	PBI_CONFFILE="pbi.conf"
-        PBI_CONF_SCRIPTSDIR="scripts/"
-	PBI_CREATE_OUTDIR="$HOME"
-	PBI_CWEB=""
-	PBI_DBAPPDIR="${PBI_DBDIR}/installed"
 	PBI_DBINDEXDIR="${PBI_DBDIR}/index"
 	PBI_INDEXDB="${PBI_DBINDEXDIR}/PBI-INDEX"
-	PBI_DOCONTAINER=""
-	PBI_GUITOPBANNER="gui_banner.png"
-	PBI_GUISIDEBANNER="gui_sidebanner.png"
-	PBI_KEEPBUILDFILES="NO"
-	PBI_MAKEPORT=""
-	PBI_MAKEPREFIX=""
-	PBI_MAKEOPTS=""
-	PBI_MKPORTBEFORE=""
-	PBI_MKPORTAFTER=""
-	PBI_ORIGIN=""
-	PBI_PORTSDIR=""
-	PBI_PROGAUTHOR=""
-	PBI_PROGMDATE=""
-	PBI_PROGEPOCH=""
-	PBI_PROGNAME=""
-	PBI_PROGDIRNAME=""
-	PBI_PROGDIRPATH=""
-	PBI_PROGICON=""
-	PBI_PROGREVISION=""
-	PBI_PROGVERSION=""
-	PBI_PROGWEB=""
-	PBI_PRUNEBUILDPORTS="YES"
-	PBI_SKIPCHECKSUM=""
-	PBI_SKIPSIGVERIFY=""
-	PBI_USESYSGL="YES"
-	PBI_USESYSFONTS="YES"
 	PBI_VERBOSE="NO"
-	PORTSDIR="/usr/ports"
-
-}
-
-detect_pkgng()
-{
-        export PKG_ADD="pkg add"
-        export PKG_DELETE="pkg delete -y -f"
-}
-
-# Set and export vars used by module scripts
-export_script_vars() {
-	# Load some initial values
-	get_pbi_progdir
-	get_pbi_progversion
-
-	export PBI_PROGNAME PBI_PROGDIRNAME PBI_PROGDIRPATH PBI_PROGVERSION PBI_RCDIR PBI_MANDIR PBI_BINDIR
-	export SYS_LOCALBASE PBI_FAKEBIN_DIR PBI_FAKERC_DIR
 }
 
 # init tmpdir
@@ -697,107 +335,6 @@ load_pbi_conffile() {
 	fi
 }
 
-# Get the PBI_PROGVERSION
-get_pbi_progversion() {
-
-	if [ -n "${PBI_PROGVERSION}" ] ; then return 0 ; fi
-
-	load_pbi_conffile
-
-	# If we have PBI_PROGVERSION now set
-	if [ -n "${PBI_PROGVERSION}" ] ; then return 0 ; fi
-
-  	# Remove any trailing '/'
-  	echo $PBI_ORIGIN | grep -q "/$"
-  	if [ $? -eq 0 ] ; then
-     		PBI_ORIGIN="`echo $PBI_ORIGIN | sed 's|/$||g'`"
-  	fi
-
-	# Check first if we have this pkg in PKGNG
-	if [ -n "$PBI_PKGNGBUILD" -a -z "$PBI_AB_NOPKGBUILD" ] ; then
-		testPkgVer="`pkg-static rquery '%v' ${PBI_ORIGIN}`"
-		if [ -z "$testPkgVer" ] ; then
-			# Try one more time, just in case PKGNG was busy, silly database locking
-			sleepRand="`jot -r 1 1 90`"
-			sleep $sleepRand
-			testPkgVer="`pkg-static rquery '%v' ${PBI_ORIGIN}`"
-		fi
-		if [ -n "$testPkgVer" ] ; then
-			PBI_PROGVERSION="$testPkgVer"
-			# If we have a REVISION, use it as well
-			if [ -n "$PBI_PROGREVISION" ] ; then
-				PBI_PROGVERSION="${PBI_PROGVERSION}_${PBI_PROGREVISION}"
-			fi
-			export PBI_PROGVERSION
-			return 0
-		fi
-		exit_err "Failed to get PBI_PROGVERSION for ${PBI_ORIGIN}"
-	fi
-
-	# Get the version from ports
-	if [ -z "${PBI_PROGVERSION}" -a -n "${PORTSDIR}" -a -n "${PBI_ORIGIN}" ] ; then
-		PORTVER="`make -C ${PORTSDIR}/${PBI_ORIGIN} -V DISTVERSION PORTSDIR=${PORTSDIR} 2>/dev/null`"
-
-  		# Check if we have a portrevision to use in version number
-  		PORTREV=""
-  		PORTREV="`make -C ${PORTSDIR}/${PBI_ORIGIN} -V PORTREVISION PORTSDIR=${PORTSDIR} 2>/dev/null`"
-  		if [ -n "${PORTREV}" -a "${PORTREV}" != "0" ]
- 		then
-			PBI_PROGVERSION="${PORTVER}_${PORTREV}"
-		else
-			PBI_PROGVERSION="${PORTVER}"
-		fi
-
-		if [ -z "${PBI_PROGVERSION}" ] ; then
-			echo "Warning: Unable to set PBI_PROGVERSION with:"
-		        echo "make -C ${PORTSDIR}/${PBI_ORIGIN} -V DISTVERSION PORTSDIR=${PORTSDIR}"
-		fi
-	else
-		echo "PBI_PROGVERSION - $PBI_PROGVERSION - PORTSDIR - ${PORTSDIR} - $PBI_ORIGIN - $PBI_MAKE_PORT - pbi - $pbi"
-		exit_err "Failed to locate PBI_PROGVERSION"
-	fi
-
-	# If we have a REVISION, use it as well
-	if [ -n "$PBI_PROGREVISION" ] ; then
-		PBI_PROGVERSION="${PBI_PROGVERSION}_${PBI_PROGREVISION}"
-	fi
-}
-
-
-# Get the PBI_PROGNAME
-get_pbi_progname() {
-	if [ -z "${PBI_PROGNAME}" -o "${PBI_PROGNAME}" = " " ] ; then
-		load_pbi_conffile
-	else
-		return 0
-	fi
-
-	if [ -z "${PBI_PROGNAME}" -a -n "${PORTSDIR}" -a -n "${PBI_ORIGIN}" ] ; then
-		# Get the proper package name from the prefix + name + suffix
-		local pkgPrefix="`make -C ${PORTSDIR}/${PBI_ORIGIN} -V PKGNAMEPREFIX PORTSDIR=${PORTSDIR}`"
-		local pkgName="`make -C ${PORTSDIR}/${PBI_ORIGIN} -V PORTNAME PORTSDIR=${PORTSDIR}`"
-		local pkgSuffix="`make -C ${PORTSDIR}/${PBI_ORIGIN} -V PKGNAMESUFFIX PORTSDIR=${PORTSDIR}`"
-		PBI_PROGNAME="${pkgPrefix}${pkgName}${pkgSuffix}"
-	else
-		exit_err "Failed to locate PBI_PROGNAME"
-	fi
-}
-
-# Get the PBI PROGDIR Name
-get_pbi_progdir() {
-	if [ -z "${PBI_PROGNAME}" ] ; then
-		get_pbi_progname
-	fi
-
-	tmp="`echo ${PBI_PROGNAME} | tr -d ' ' | tr '[A-Z]' '[a-z]' | sed 's|+||g'`"
-	if [ -z "${PBI_PROGDIRNAME}" ] ; then
-		PBI_PROGDIRNAME="${tmp}-${ARCH}"
-	fi
-	if [ -z "${PBI_PROGDIRPATH}" ] ; then
-		PBI_PROGDIRPATH="${PBI_APPDIR}/${PBI_PROGDIRNAME}"
-	fi
-}
-
 # Helper function to exit after a error, and do some cleanup
 exit_err() {
 	echo -e "`basename ${0}`: ${1}"
@@ -810,32 +347,6 @@ require_root() {
   if [ `id -u` != "0" ] ; then
      exit_err "Must be run as root!"
   fi 
-}
-
-# Confirm we are running as root or the proper group for installation
-require_root_or_group() {
-  if [ `id -u` = "0" ] ; then return 0 ; fi 
-  touch ${PBI_APPDIR}/.ptest.$$ >/dev/null 2>/dev/null
-  if [ "$?" = "0" ] ; then 
-	rm ${PBI_APPDIR}/.ptest.$$ >/dev/null 2>/dev/null
-	return 0
-  fi
-  exit_err "Must be run as root or a member of the $PBI_INSTALLGROUP group!"
-}
-
-# Function to get the username from a file
-get_username_from_file() {
-	if [ -f "${1}" ] ; then 
-		FILEUSER=`ls -al ${1} | awk '{print $3}'`
-		export FILEUSER
-		return 0
-	fi
-	if [ -d "${1}" ] ; then 
-		FILEUSER=`ls -al ${1} | grep -v "total" | head -n 1 | awk '{print $3}'`
-		export FILEUSER
-		return 0
-	fi
-	exit_err "Invalid file for usercheck!"
 }
 
 # Create a PBI repoindex from a modules directory
@@ -871,7 +382,7 @@ make_pbi_index() {
    for pbi in `find . -type f -name "${PBI_CONFFILE}" | grep -v '\.svn' | grep -v '\.git' | sort`
    do
 	# Figure out the target port for this build
-	unset PBI_MAKEPORT PBI_BUILDKEY PBI_PROGVERSION PBI_REQUIRESROOT PBI_PROGNAME PBI_PROGWEB PBI_PROGAUTHOR PBI_PROGICON PBI_MKPORTBEFORE PBI_MKPORTAFTER PBI_MAKEOPTS PBI_EXCLUDELIST PBI_AB_PRIORITY PBI_AB_NOTMPFS PBI_PROGREVISION PBI_AB_NOPKGBUILD PBI_SCREENSHOTS PBI_RELATED PBI_PLUGINS PBI_CONTAINER PBI_DESC PBI_SHORTDESC PBI_ORIGIN
+	unset PBI_MAKEPORT PBI_BUILDKEY PBI_PROGVERSION PBI_REQUIRESROOT PBI_PROGNAME PBI_PROGWEB PBI_PROGAUTHOR PBI_PROGICON PBI_MKPORTBEFORE PBI_MKPORTAFTER PBI_MAKEOPTS PBI_EXCLUDELIST PBI_AB_PRIORITY PBI_AB_NOTMPFS PBI_PROGREVISION PBI_AB_NOPKGBUILD PBI_SCREENSHOTS PBI_RELATED PBI_PLUGINS PBI_DESC PBI_SHORTDESC PBI_ORIGIN
 
 	. ${pbi}
 
@@ -905,7 +416,6 @@ make_pbi_index() {
 
 	# Git rid of extra spaces
 	local _PKGOTHER=""
-	local _PKGCONTAINER=""
 
 	# Check that all the other packages required are available
 	skip=0
@@ -925,31 +435,13 @@ make_pbi_index() {
 		fi
 		_PKGOTHER="$_PKGOTHER $port"
 	done
-
-	# Check that packages required to create a container are available
-	for port in `echo ${PBI_CONTAINERPKGS} | awk 1 ORS=' '`
-	do
-  		# Cleanup $port
-  		echo $port | grep -q "/$"
-  		if [ $? -eq 0 ] ; then port="`echo $port | sed 's|/$||g'`"; fi
-  		echo $port | grep -q "^/"
-  		if [ $? -eq 0 ] ; then port="`echo $port | sed 's|^/||g'`"; fi
-
-		pkg-static rquery -U '%v' ${port} >/dev/null 2>/dev/null
-		if [ $? -ne 0 ] ; then
-			echo "Warning: Container Package missing for $PBI_CONFDIR ($port)"
-			PBI_CONTAINER="NO"
-			break
-		fi
-		_PKGCONTAINER="$_PKGCONTAINER $port"
-	done
 	if [ $skip -eq 1 ] ; then continue ; fi
 
 	# Load any extra meta-data from the package
 	load_pkg_metadata
 
 	# Save this to the temporary INDEX file
-	echo "PBI=${PBI_ORIGIN}${d}${PBI_PROGNAME}${d}${_PKGOTHER}${d}${PBI_PROGAUTHOR}${d}${PBI_PROGWEB}${d}${PBI_LICENSE}${d}${PBI_PROGTYPE}${d}${PBI_CATEGORY}${d}${PBI_TAGS}${d}${PBI_MAINTAINER}${d}${PBI_SHORTDESC}${d}${PBI_DESC}${d}${PBI_SCREENSHOTS}${d}${PBI_RELATED}${d}${PBI_PLUGINS}${d}${PBI_CONTAINER}${d}${PBI_CONFDIR}${d}${_PKGCONTAINER}${d}" >> ${tI}
+	echo "PBI=${PBI_ORIGIN}${d}${PBI_PROGNAME}${d}${_PKGOTHER}${d}${PBI_PROGAUTHOR}${d}${PBI_PROGWEB}${d}${PBI_LICENSE}${d}${PBI_PROGTYPE}${d}${PBI_CATEGORY}${d}${PBI_TAGS}${d}${PBI_MAINTAINER}${d}${PBI_SHORTDESC}${d}${PBI_DESC}${d}${PBI_SCREENSHOTS}${d}${PBI_RELATED}${d}${PBI_PLUGINS}${d}${PBI_CONFDIR}${d}" >> ${tI}
 
    done
 
@@ -1002,13 +494,10 @@ load_pbi_info_index()
 	PBI_SHORTDESC=`echo $line | awk -F:::: '{print $11}'`
 	PBI_DESC=`echo $line | awk -F:::: '{print $12}'`
 	PBI_PLUGINS=`echo $line | awk -F:::: '{print $15}'`
-	PBI_CANCONTAINER=`echo $line | awk -F:::: '{print $16}'`
+	PBI_CONFDIR=`echo $line | awk -F:::: '{print $16}'`
 	PBI_APPARCH=`uname -m`
 	PBI_PROGVERSION=`pkg-static rquery '%v' $PBI_ORIGIN`
 	
-	# Set the PBI_PROGDIRPATH
-	get_pbi_progdir
-
 	return 0
 }
 
@@ -1018,56 +507,16 @@ pbi_add_init() {
 	parse_add_pbi_cmdline "$@"
 
 	# If this isn't a container request, switch to package mode
-	if [ "$PBI_DOCONTAINER" != "YES" ] ;then
-		load_pbi_info_index "$PBI_FILENAME"
-		if [ $? -ne 0 ] ; then
-			exit_err "No such PBI: $PBI_FILENAME"
-		fi
-		if [ "$PBI_ADD_INFODISPLAY" = "YES" ] ; then
-			check_pbi_info_display
-			exit_trap
-		fi
-		do_pbi_pkg_add
-		exit_trap
+	load_pbi_info_index "$PBI_FILENAME"
+	if [ $? -ne 0 ] ; then
+		exit_err "No such PBI: $PBI_FILENAME"
 	fi
-
-	# Are we loading from an existing .pbi file, or building?
-	echo "$PBI_FILENAME" | grep -q "\.pbi"
-	if [ $? -eq 0 -a -e "$PBI_FILENAME" ] ; then
-		# Check if we are only displaying information
+	if [ "$PBI_ADD_INFODISPLAY" = "YES" ] ; then
 		check_pbi_info_display
-		check_pbi_scripts_display
-		check_pbi_license_display
-		check_pbi_meta_display
-		if [ "$PBI_ADD_GUIDISPLAY" = "YES" -o "$PBI_ADD_INFODISPLAY" = "YES" -o "$PBI_CHECKSCRIPTS" = "YES" -o "${PBI_ADD_LICDISPLAY}" = "YES" -o "${PBI_ADD_METADISPLAY}" = "YES" ] 
-		then
-			exit_trap
-		fi
-
-  		require_root
-
-		check_agree_lic
-		check_existing_pbi
-		do_pbi_add
-
-		exit_trap
-	else
-		# We are assembling this PBI from packages
-		load_pbi_info_index "$PBI_FILENAME"
-		if [ $? -ne 0 ] ; then
-			exit_err "No such PBI: $PBI_FILENAME"
-		fi
-		if [ "$PBI_ADD_INFODISPLAY" = "YES" ] ; then
-			check_pbi_info_display
-			exit_trap
-		fi
-
-		do_pbi_pkg_build
-		pbi_add_register_app
-
 		exit_trap
 	fi
-
+	do_pbi_pkg_add
+	exit_trap
 }
 
 # Build a list of dependancies for a particular package
@@ -1172,72 +621,6 @@ do_pbi_pkg_add() {
 	exit 0
 }
 
-# Check if this PBI exists and exit if so
-check_existing_pbi() {
-	if [ "${PBI_EXTRACTONLY}" = "YES" ] ; then return 0; fi
-	get_dbdir
-	dir="${APPDBDIR}"
-
-	# See if this PBI is already installed
-	if [ -d "$dir" ]; then
-		get_username_from_file "${APPDBDIR}/pbi_name"
-		if [ "$FILEUSER" != `whoami` -a `id -u` != "0" ] ; then
-			exit_err "Permission denied to modify PBI installed by: $FILEUSER"     
-		fi
-
-		if [ "${PBI_FORCEADD}" = "YES" ] ; then return 0; fi
-		exit_err "${PBI_PROGNAME} ${PBI_PROGVERSION} is already installed! Use -f to force installation."
-	fi
-
-	if [ -e "${PBI_PROGDIRPATH}" ]; then
-		get_username_from_file "${PBI_PROGDIRPATH}"
-		if [ "$FILEUSER" != `whoami` -a `id -u` != "0" ] ; then
-			exit_err "Permission denied to modify PBI installed by: $FILEUSER"     
-		fi
-		if [ "${PBI_FORCEADD}" = "YES" ] ; then return 0; fi
-		exit_err "${PBI_PROGDIRPATH} already exists! Use -f to force installation."
-	fi
-
-
-}
-
-# Check if we have a license to agree to, and if we've provided the flag to do so
-check_agree_lic() {
-        open_header_tmp
-        if [ -f "${PBI_HEADER_TMPDIR}/${PBI_LICENSEFILE}" -a "${PBI_LICAGREE}" = "NO" ] ; then
-        	delete_header_tmp
-		exit_err "LICENSE must be agreed to (--licagree) before this PBI can be installed."
-        fi
-        delete_header_tmp
-}
-
-# See if we need to display pbi meta file
-check_pbi_meta_display() {
-	if [ "$PBI_ADD_METADISPLAY" != "YES" ] ; then return 0 ; fi
-	open_header_tmp
-	
-	if [ -f "${PBI_HEADER_TMPDIR}/${PBI_USERMETAFILE}" ] ; then 
-		cat "${PBI_HEADER_TMPDIR}/${PBI_USERMETAFILE}"	
-	else
-		echo "`basename $0`: No user metafile included with this PBI"
-	fi
-	delete_header_tmp
-}
-
-# See if we need to display pbi license
-check_pbi_license_display() {
-	if [ "$PBI_ADD_LICDISPLAY" != "YES" ] ; then return 0 ; fi
-	open_header_tmp
-	
-	if [ -f "${PBI_HEADER_TMPDIR}/${PBI_LICENSEFILE}" ] ; then 
-		echo "LICENSE:"
-		cat "${PBI_HEADER_TMPDIR}/${PBI_LICENSEFILE}"	
-	else
-		echo "`basename $0`: No LICENSE included with this PBI"
-	fi
-	delete_header_tmp
-}
-
 # See if we need to display pbi info
 check_pbi_info_display() {
 	if [ "$PBI_ADD_INFODISPLAY" != "YES" ] ; then return 0 ; fi
@@ -1258,362 +641,25 @@ pbi_display_info() {
 		echo "InstalledBy: $PBI_INSTALLED_BY"
 	fi
 
-	# Does this PBI need root to install?
-	if [ "$PBI_REQUIRESROOT" = "YES" -o "$PBI_CONTAINER" != "YES" ] ; then
-		echo "RootInstall: YES"
-	else
-		echo "RootInstall: NO"
-	fi
-
 	echo "Version: ${PBI_PROGVERSION}"
 	echo "Author: ${PBI_PROGAUTHOR}"
 	echo "Website: ${PBI_PROGWEB}"
 	echo "Arch: ${PBI_APPARCH}"
 	echo "Description: ${PBI_SHORTDESC}"
-	if [ "$PBI_CONTAINER" != "YES" ] ; then return; fi
-	echo "Built: ${PBI_PROGMDATE}"
-	echo "Prefix: ${PBI_ORIGPROGDIRPATH}"
-	echo "FbsdVer: ${PBI_FBSDVER}"
-	echo "CreatorVer: ${PBI_APPCREATEVER}"
-	echo "ArchiveCount: ${PBI_ARCHIVE_COUNT}"
-	echo "ArchiveSum: ${PBI_ARCHIVE_CHECKSUM}"
-	case ${PBI_SIGVALID} in
-		0) echo "Signature: Verified" ;;
-  	       -1) echo "Signature: Not Signed" ;;
-  	        1) echo "Signature: Bad" ;;
-		*) echo "Signature: <Unknown>" ;;
-	esac
-
 	if [ -n "$PBI_LICENSE" ] ; then
 		echo "License: $PBI_LICENSE"
 	fi
 
 	# See if we have any XDG stuff
-	if [ -e "${PBI_ORIGPROGDIRPATH}/.xdg-desktop/install-desktop-icons.sh" ] ; then
+	if [ -d "${PBI_DBINDEXDIR}/${PBI_CONFDIR}/xdg-desktop" ] ; then
 		echo "DesktopIcons: YES"
 	fi
-	if [ -e "${PBI_ORIGPROGDIRPATH}/.xdg-menu/install-menu-icons.sh" ] ; then
+	if [ -d "${PBI_DBINDEXDIR}/${PBI_CONFDIR}/xdg-menu" ] ; then
 		echo "MenuIcons: YES"
 	fi
-	if [ -e "${PBI_ORIGPROGDIRPATH}/.xdg-mime/install-mime.sh" ] ; then
+	if [ -d "${PBI_DBINDEXDIR}/${PBI_CONFDIR}/xdg-mime" ] ; then
 		echo "MimeRegistration: YES"
 	fi
-
-	# If verbose mode, show file contents
-	if [ "$PBI_VERBOSE" = "YES" ] ; then
-		if [ -n "${PBI_FILENAME}" -a -e "${PBI_FILENAME}" ] ; then
-	  		pbi_find_archive_header
-                	echo "TOTALFILES: ${PBI_ARCHIVE_COUNT}"
-                	echo "Archive Contents:"
-                	echo "--------------------------------------"
-                	tail +$PBI_SKIP_ARCHLINES "${PBI_FILENAME}" | tar tvf - 
-		fi
-        fi
-}
-
-open_header_tmp() {
-	init_tmpdir
-
-	# If we have a custom extract dir, use it
-	if [ -z "$1" ] ; then
-		PBI_HEADER_TMPDIR="${PBI_TMPDIR}/.PBI-header.$$"
-	else
-		PBI_HEADER_TMPDIR="${1}/.PBI-header.$$"
-	fi
-
-	if [ -e "${PBI_HEADER_TMPDIR}" ] ; then rm -rf "${PBI_HEADER_TMPDIR}" ; fi
-	mkdir -p "${PBI_HEADER_TMPDIR}"
-	
-	# Extract the header files 
-	tar xf "${PBI_FILENAME}" -C "${PBI_HEADER_TMPDIR}" >/dev/null 2>/dev/null
-	if [ "$?" != "0" ] ; then exit_err "Failed to read PBI header! Possible corrupt PBI, or wrong PBI version for this OS." ; fi
-
-}
-
-delete_header_tmp() {
-	if [ -z "${PBI_HEADER_TMPDIR}" ] ; then return 0 ; fi
-	if [ -d "${PBI_HEADER_TMPDIR}" ] ; then rm -rf "${PBI_HEADER_TMPDIR}" ; fi
-}
-
-# Load in all the configuration data from the header
-load_info_from_header() {
-	open_header_tmp
-
-	# Start loading our variables
-	load_info_from_dir "${PBI_HEADER_TMPDIR}"
-
-	delete_header_tmp
-}
-
-# See if we need to display scripts
-check_pbi_scripts_display() {
-	if [ "$PBI_CHECKSCRIPTS" != "YES" ] ; then return 0 ; fi
-
-	# Display our scripts
-	open_header_tmp
-	if [ -e "${PBI_HEADER_TMPDIR}/${MOD_PREINS}" ] ; then
-		echo -e "\n${MOD_PREINS}:"
-		echo "--------------------------------"
-		cat "${PBI_HEADER_TMPDIR}/${MOD_PREINS}"
-	fi
-	if [ -e "${PBI_HEADER_TMPDIR}/${MOD_POSTINS}" ] ; then
-		echo -e "\n${MOD_POSTINS}:"
-		echo "--------------------------------"
-		cat "${PBI_HEADER_TMPDIR}/${MOD_POSTINS}"
-	fi
-	if [ -e "${PBI_HEADER_TMPDIR}/${MOD_PREREM}" ] ; then
-		echo -e "\n${MOD_PREREM}:"
-		echo "--------------------------------"
-		cat "${PBI_HEADER_TMPDIR}/${MOD_PREREM}"
-	fi
-	delete_header_tmp
-}
-
-# Load pbi information from the specified directory
-load_info_from_dir() {
-	REQUIRED_FILES="pbi_defaultpath pbi_name pbi_version pbi_author pbi_web pbi_arch pbi_fbsdver pbi_createver"
-	for f in $REQUIRED_FILES
-	do
-		if [ ! -e "${1}/${f}" ] ; then echo "Warning: Missing file: ${f}" ; fi
-	done
-        PBI_APPARCH=""
-        PBI_APPCREATEVER=""
-        PBI_ARCHIVE_CHECKSUM=""
-        PBI_ARCHIVE_COUNT=""
-        PBI_FBSDVER=""
-	PBI_ORIGPROGDIRPATH=""
-	PBI_PROGNAME=""
-        PBI_PROGVERSION=""
-        PBI_PROGAUTHOR=""
-        PBI_PROGMDATE=""
-        PBI_PROGWEB=""
-	PBI_REQUIRESROOT=""
-	PBI_SIGVALID=""
-	PBI_DESC=""
-	PBI_SHORTDESC=""
-	PBI_MAINTAINER=""
-	PBI_TAGS=""
-	PBI_PROGTYPE=""
-	PBI_CATEGORY=""
-	PBI_ICONURL=""
-	PBI_LICENSE=""
-
-	PBI_ORIGPROGDIRPATH="`cat ${1}/pbi_defaultpath`"
-        PBI_PROGNAME="`cat ${1}/pbi_name`"
-        PBI_PROGVERSION="`cat ${1}/pbi_version`"
-        PBI_PROGAUTHOR="`cat ${1}/pbi_author`"
-        PBI_PROGWEB="`cat ${1}/pbi_web 2>/dev/null`"
-        PBI_PROGMDATE="`cat ${1}/pbi_mdate 2>/dev/null`"
-        PBI_APPARCH="`cat ${1}/pbi_arch 2>/dev/null`"
-        PBI_FBSDVER="`cat ${1}/pbi_fbsdver 2>/dev/null`"
-        PBI_APPCREATEVER="`cat ${1}/pbi_createver 2>/dev/null`"
-        PBI_ARCHIVE_COUNT="`cat ${1}/pbi_archivecount 2>/dev/null`"
-        PBI_ARCHIVE_CHECKSUM="`cat ${1}/pbi_archivesum 2>/dev/null`"
-
-	if [ -e "${1}/pbi_license" ] ; then
-                PBI_LICENSE="`cat ${1}/pbi_license`"
-        fi
-	if [ -e "${1}/pbi_tags" ] ; then
-                PBI_TAGS="`cat ${1}/pbi_tags`"
-        fi
-	if [ -e "${1}/pbi_type" ] ; then
-                PBI_PROGTYPE="`cat ${1}/pbi_type`"
-        fi
-	if [ -e "${1}/pbi_category" ] ; then
-                PBI_CATEGORY="`cat ${1}/pbi_category`"
-        fi
-	if [ -e "${1}/pbi_iconurl" ] ; then
-                PBI_ICONURL="`cat ${1}/pbi_iconurl`"
-        fi
-	if [ -e "${1}/pbi_desc" ] ; then
-                PBI_DESC="`cat ${1}/pbi_desc | awk 1 ORS=' ' | sed 's|  |<br>|g' | sed 's|*|-|g'`"
-        fi
-	if [ -e "${1}/pbi_shortdesc" ] ; then
-                PBI_SHORTDESC="`cat ${1}/pbi_shortdesc | awk 1 ORS=' ' | sed 's|  |<br>|g' | sed 's|*|-|g'`"
-        fi
-	if [ -e "${1}/pbi_maintainer" ] ; then
-                PBI_MAINTAINER="`cat ${1}/pbi_maintainer`"
-        fi
-
-	# Does this PBI need to be installed as root
-	if [ -e "${1}/pbi_requiresroot" ] ; then
-		PBI_REQUIRESROOT="YES"
-	fi
-	
-	# See if this PBI was signed
-	if [ -e "${1}/pbi_archivesum.sha1" ] ; then
-		check_valid_sigs "${1}"
-		if [ "$?" = "0" ] ; then
-			PBI_SIGVALID="0"
-		else
-			PBI_SIGVALID="1"
-		fi
-	else
-		PBI_SIGVALID="-1"
-	fi
-}
-
-# Start installing the PBI
-do_pbi_add() {
-	pbi_verify_signatures
-	pbi_verify_archivesum
-
-	check_preinstall_script
-
-	mk_pbi_extract_dir
-	pbi_extract_archive
-	
-	pbi_add_check_gids
-	pbi_add_check_uids
-	pbi_add_check_gids_users
-
-	pbi_add_run_script
-	check_postinstall_script
-
-	pbi_add_register_app
-
-	# Flush to disk
-	sleep 0.5
-	sync
-
-}
-
-# Check for any GIDs we need to create
-pbi_add_check_gids_users() {
-	if [ ! -e "${PBI_PROGDIRPATH}/${PBI_INS_GROUPSFILE}" ] ; then return ; fi
-	runUID=`id -u`
-
-	while read gidLine
-	do
-		gName=`echo $gidLine | cut -d ':' -f 1`
-		gID=`echo $gidLine | cut -d ':' -f 3`
-		gUsers=`echo $gidLine | cut -d ':' -f 4`
-
-		if [ -n "$gUsers" ] ; then
-			for gUser in `echo $gUsers | sed 's|,| |g'`
-			do
-				pw groupshow ${gName} | grep -qw ${gUser}
-				if [ $? -ne 0 ] ; then
-					# Are we installing as root?
-					if [ "$runUID" != "0" ] ; then
-						echo "Please add user \"$gUser\" to group \"$gName\" manually or re-install PBI as root."
-						continue
-					fi
-
-					echo "Adding user ${gUser} to group ${gName}"
-					pw groupmod ${gName} -m ${gUser}
-				fi
-			done
-		fi
-	done < ${PBI_PROGDIRPATH}/${PBI_INS_GROUPSFILE}
-}
-
-
-# Check for any GIDs we need to create
-pbi_add_check_gids() {
-	if [ ! -e "${PBI_PROGDIRPATH}/${PBI_INS_GROUPSFILE}" ] ; then return ; fi
-	runUID=`id -u`
-
-	while read gidLine
-	do
-		gName=`echo $gidLine | cut -d ':' -f 1`
-		gID=`echo $gidLine | cut -d ':' -f 3`
-		gUsers=`echo $gidLine | cut -d ':' -f 4`
-
-		# Is this group already on the system?
-		pw groupshow $gName >/dev/null 2>/dev/null
-		if [ $? -eq 0 ] ; then
-			echo "Using existing group: $gName"
-		else
-			# Are we installing as root?
-			if [ "$runUID" != "0" ] ; then
-				echo "Please create group \"$gName\" manually or re-install PBI as root."
-			else
-				echo "Adding group: $gName"
-				pw groupadd $gName -g $gID;
-			fi
-		fi
-	done < ${PBI_PROGDIRPATH}/${PBI_INS_GROUPSFILE}
-}
-
-# Check for any UIDs we need to create
-pbi_add_check_uids() {
-	if [ ! -e "${PBI_PROGDIRPATH}/${PBI_INS_USERSFILE}" ] ; then return ; fi
-	runUID=`id -u`
-
-	while read uidLine
-	do
-		uName=`echo $uidLine | cut -d ':' -f 1`
-
-		# Is this user already on the system?
-		pw usershow $uName >/dev/null 2>/dev/null
-		if [ $? -eq 0 ] ; then echo "Using existing user: $uName"; continue ; fi
-
-		# Are we installing as root?
-		if [ "$runUID" != "0" ] ; then
-			echo "Please create user \"$uName\" manually or re-install PBI as root."
-			continue
-		fi
-
-		uID=`echo $uidLine | cut -d ':' -f 3`
-		gID=`echo $uidLine | cut -d ':' -f 4`
-		uClass=`echo $uidLine | cut -d ':' -f 5`
-		uGecos=`echo $uidLine | cut -d ':' -f 8`
-		uHomedir=`echo $uidLine | cut -d ':' -f 9 | sed "s|^/usr/local|${PBI_PROGDIRPATH}|"`
-		uShell=`echo $uidLine | cut -d ':' -f 10`
-
-		echo "Adding user: $uName"
-		pw useradd $uName -u $uID -g $gID $uClass -c "$uGecos" -d $uHomedir -s $uShell;
-
-		# Create homedir
-		case $uHomedir in 
-			/nonexistent|/var/empty) ;; 
-			*) install -d -g $gID -o $uID $uHomedir ;;
-		esac 
-	done < ${PBI_PROGDIRPATH}/${PBI_INS_USERSFILE}
-}
-
-# Run the install script if exists
-pbi_add_run_script() {
-
-	# If running as user, add bin path-links
-	if [ "`id -u`" != "0" ] ; then add_app_path_links "${PBI_PROGDIRPATH}" ; fi
-
-	insc="${PBI_PROGDIRPATH}/${PBI_FAKEBIN_DIR}/.pbi-install.sh"
-	if [ ! -e "${insc}" ] ; then return 0 ; fi
-	export_script_vars
-	if [ "$PBI_VERBOSE" = "YES" ] ; then
-		${insc}
-	else
-		${insc} >/dev/null 2>/dev/null
-	fi
-
-}
-
-# Return the dbdir for this PBI
-get_dbdir() {
-	tmp="`echo ${PBI_PROGNAME} | tr -d ' ' | tr '[A-Z]' '[a-z]'`"
-        APPDBDIR="${PBI_DBAPPDIR}/${tmp}-${PBI_PROGVERSION}-${PBI_APPARCH}"
-}
-
-# Register this app as installed
-pbi_add_register_app() {
-	if [ ! -d "$PBI_DBAPPDIR" ] ; then mkdir -p ${PBI_DBAPPDIR} ; fi
-	get_dbdir
-	dir="${APPDBDIR}"
-
-	if [ "$PBI_FORCEADD" = "YES" ] ; then
-	  	tmp="`echo ${PBI_PROGNAME} | tr -d ' ' | tr '[A-Z]' '[a-z]'`"
-          	rm -rf ${PBI_DBAPPDIR}/${tmp}-*-${PBI_APPARCH}
-	fi
-
-	mkdir -p "${dir}"
-	
-	echo "${PBI_PROGDIRPATH}" >${dir}/pbi_installedpath
-	echo "${PBI_NAME}" >${dir}/pbi_progname
-	echo "${PBI_PROGVERSION}" >${dir}/pbi_progver
-
-	echo "Installed: ${PBI_PROGNAME}-${PBI_PROGVERSION}"
 }
 
 # Check if we have a postinstall script we need to use
@@ -1625,7 +671,6 @@ check_postinstall_script() {
                 return 0
         fi
 
-        export_script_vars
         sh "${PBI_HEADER_TMPDIR}/${MOD_POSTINS}"
         delete_header_tmp
 }
@@ -1639,22 +684,12 @@ check_preinstall_script() {
 		return 0 
 	fi
 
-	export_script_vars
 	sh "${PBI_HEADER_TMPDIR}/${MOD_PREINS}"
 	if [ "$?" != "0" ] ; then
         	delete_header_tmp
 		exit_err "${MOD_PREINS} returned error status"
 	fi
         delete_header_tmp
-}
-
-# Verify if we have valid openssl signatures on important parts of PBI
-pbi_verify_signatures() {
-	if [ "${PBI_SKIPSIGVERIFY}" = "YES" ] ; then return 0 ; fi
-	if [ "$PBI_SIGVALID" = "0" ] ; then return ; fi
-	if [ "$PBI_SIGVALID" = "1" ] ; then kw="Invalid" ; else kw="No" ; fi
-	exit_err "$kw digital signature! If you are *SURE* you trust this PBI, re-install with --no-checksig option. "
-
 }
 
 # Check if we have valid signature on this file
@@ -1667,785 +702,7 @@ check_file_sig() {
 	return $?	
 }
 
-# Check if we have valid signatures, and return "0" if success, "1" if failure
-check_valid_sigs() {
-	PBI_VALIDKEYSIG=""
-
-	for _pk in ${PBI_PUBKEYS}
-	do
-		good="true"
-		_sf="${1}/pbi_archivesum ${1}/${MOD_PREINS} ${1}/${MOD_POSTINS} ${1}/${MOD_PREREM}"
-       		for _ts in $_sf
-        	do
-                	openssl dgst -sha1 \
-                        -verify ${_pk} \
-                        -signature ${_ts}.sha1 \
-                        ${_ts} >/dev/null 2>/dev/null
-			if [ "$?" != "0" ] ; then
-				good="false" ; break
-			fi
-			PBI_VALIDKEYSIG="$_pk"
-		done
-		if [ "$good" = "true" ] ; then return 0 ; fi
-        done
-	return 1	
-}
-
-# Verify if the archive checksum is good
-pbi_verify_archivesum() {
-	if [ "${PBI_SKIPCHECKSUM}" = "YES" ] ; then return 0 ; fi
-	echo -e "Verifying Checksum...\c"
-
-        pbi_find_archive_header
-	sum=`tail +$PBI_SKIP_ARCHLINES "${PBI_FILENAME}" | sha256 -q`
-	if [ "$PBI_VERBOSE" = "YES" ] ; then
-		echo "Archive checksum: ${sum}"
-		echo "Saved checksum: ${PBI_ARCHIVE_CHECKSUM}"
-	fi
-	if [ "$sum" != "$PBI_ARCHIVE_CHECKSUM" ] ; then
-		exit_err "${PBI_FILENAME} failed checksum, the archive may be corrupt."
-	fi
-	echo -e "OK"
-
-}
-
-# Make our PBI extraction dir
-mk_pbi_extract_dir() {
-	PBI_EXTRACTDIR="${PBI_PROGDIRPATH}"
-	if [ -e "${PBI_EXTRACTDIR}" ] ; then
-               rm -rf "$PBI_EXTRACTDIR"
-	fi
-	mkdir -p "${PBI_EXTRACTDIR}" >/dev/null 2>/dev/null
-	if [ "$?" != "0" ] ; then 
-		exit_err "Failed to create directory: ${PBI_PROGDIRPATH}"
-	fi
-}
-
-pbi_find_archive_header() {
-	# Find the header for the archive
-	# SEARCH FOR: $PBI_SS_ARCHIVE
-	PBI_SKIP_ARCHLINES=`awk "/^${PBI_SS_ARCHIVE}/ { print NR + 1; exit 0; }" "${PBI_FILENAME}"`
-	if [ "$PBI_VERBOSE" = "YES" ] ; then
-		echo "SKIP_ARCHLINES: $PBI_SKIP_ARCHLINES"
-	fi
-}
-
-# Extract the PBI archive file
-pbi_extract_archive() {
-	pbi_find_archive_header	
-
-	echo "Extracting to: ${PBI_EXTRACTDIR}"
-
-	if [ "$PBI_VERBOSE" = "YES" ] ; then
-		tar="xvf -"
-		echo "TOTALFILES: ${PBI_ARCHIVE_COUNT}"
-		tail +$PBI_SKIP_ARCHLINES "${PBI_FILENAME}" | tar ${tar} -C "${PBI_EXTRACTDIR}"
-		err="$?"
-	else
-		tar="xf -"
-		tail +$PBI_SKIP_ARCHLINES "${PBI_FILENAME}" | tar ${tar} -C "${PBI_EXTRACTDIR}" 2>/dev/null
-		err="$?"
-	fi
-	if [ "$err" != "0" ] ; then exit_err "Failed extracting ${PBI_FILENAME}" ; fi
-
-	if [ "$PBI_VERBOSE" = "YES" ] ; then echo "Extraction Finished!" ; fi
-
-	# If this is an extract only, do it and exit
-	if [ "${PBI_EXTRACTONLY}" = "YES" ] ; then exit_trap ; fi
-}
-	
-
-# Starting pbi_create
-pbi_create_init() {
-
-	require_root
-
-	parse_create_pbi_cmdline "$@"
-
-	# If we are making a backup copy of an installed PBI
-	if [ "$PBI_CBACKUP" = "YES" ] ; then
-		init_tmpdir
-		do_pbi_create_backup
-		exit_trap
-	fi
-
-	load_pbi_conffile
-
-	parse_cmdline_overrides
-
-	# Copy over the application to the correct location
-        echo ${PBI_PROGDIRPATH} | grep -q "^${PBI_APPDIR}/"
-	if [ $? -ne 0 ] ; then
-	   _pbilow="`echo ${PBI_PROGNAME} | tr '[:upper:]' '[:lower:]' | sed 's| ||g'`"
-	   newPDP="${PBI_APPDIR}/${_pbilow}-${ARCH}"
-	   if [ -d "${newPDP}" ] ; then exit_err "Error: ${newPDP} already exists!" ; fi	
-	   cp -r ${PBI_PROGDIRPATH} ${newPDP}
-	   PBI_PROGDIRPATH="${newPDP}"
-	   export PBI_PROGDIRPATH
-	fi
-
-	PBI_CREATEONLY="YES"
-
-	check_create_required_vars
-
-	do_pbi_create
-
-	# Cleanup the copy dir
- 	if [ -n "$newPDP" ] ; then
-		if [ "${newPDP}" != "/" -a "${newPDP}" != "${PBI_APPDIR}/-" ] ; then
-			rm -rf "${newPDP}"
-		fi
-	fi
-}
-
-# Start the pbi_create backup process
-do_pbi_create_backup() {
-
-	load_info_from_dir "${PBI_DBAPPDIR}/${PBI_CBACKUPTARGET}"
-	echo "Creating backup PBI: ${PBI_PROGNAME}-${PBI_PROGVERSION}"
-
-	# Start by making a fresh archive of the installed PBI
-	PBI_STAGEDIR="$PBI_ORIGPROGDIRPATH"
-	mk_archive_file
-
-	# Now make the header dir
-	_hDir="${PBI_TMPDIR}/.header.$$"
-	PBI_HEADERDIR="${_hDir}"
-	mkdir -p "${_hDir}"
-	cp ${PBI_DBAPPDIR}/${PBI_CBACKUPTARGET}/* "${_hDir}"
-	rm ${_hDir}/*.sha1 >/dev/null 2>/dev/null
-
-	# Get the total number of files in the STAGEDIR
-	get_filetotal_dir "${PBI_STAGEDIR}"
-	echo "${FILETOTAL}" > "${PBI_HEADERDIR}/pbi_archivecount"
-
-	# Save a checksum of archive file
-	sha256 -q "${PBI_CREATE_ARCHIVE}" > "${PBI_HEADERDIR}/pbi_archivesum"
-
-	# Sign any header files
-	sign_pbi_files "$PBI_HEADERDIR"
-
-	# Make the header archive
-	mk_header_file
-
-	# Now finish up and make the resulting PBI file
-	mk_output_pbi
-
-}
-
-
-# Vars required for creation
-check_create_required_vars() {
-	if [ -z "${PBI_PROGNAME}" ] ; then exit_err "Missing PBI_PROGNAME"; fi
-	if [ -z "${PBI_PROGVERSION}" ] ; then exit_err "Missing PBI_PROGVERSION"; fi
-	if [ -z "${PBI_PROGAUTHOR}" ] ; then exit_err "Missing PBI_PROGAUTHOR"; fi
-	if [ -z "${PBI_PROGWEB}" ] ; then exit_err "Missing PBI_PROGWEB"; fi
-}
-
-# Start the pbi_create process
-do_pbi_create() {
-	get_pbi_progname
-	echo "Creating PBI: ${PBI_PROGNAME}-${PBI_PROGVERSION}"
-
-
-	mk_stage_dir
-
-	copy_resource_dir
-	clean_stage_dir
-
-	mk_extlink_entries
-	clean_icons_dir
-
-	# Check for any users / groups we need to save for install time
-	mk_pbi_users_file
-	mk_pbi_groups_file
-
-	run_pbi_prepkgscript
-
-	mk_install_script
-	mk_deinstall_script
-
-	mk_archive_file
-
-	mk_header_dir
- 	save_pbi_details_to_header
-	mk_header_file
-
-	mk_output_pbi
-
-	rm_stage_dir
-	exit 0
-}
-
-# Parse any external link directives
-mk_extlink_entries() {
-	echo "Creating external link entries..."
-	init_tmpdir
-	_extf="${PBI_CONFDIR}/${MOD_EXTLINKFILE}"
-	_autoextf="${PBI_TMPDIR}/${MOD_AUTOEXTLINKFILE}"
-	_tmpextf="${PBI_TMPDIR}/${MOD_AUTOEXTLINKFILE}.$$"
-  	if [ ! -e "${_extf}" -a ! -e "${_autoextf}" ] ; then return 0 ; fi
-
-	dir="${PBI_STAGEDIRMNT}/${PBI_FAKEBIN_DIR}"
-        if [ ! -d "${dir}" ] ; then mkdir -p "${dir}" ; fi
-
-	# Create the headers for the PATH link scripts
-        echo "#!/bin/sh" >"${dir}/${PBI_INS_PATHSCRIPT}"
-        echo "#!/bin/sh" >"${dir}/${PBI_UNINS_PATHSCRIPT}"
-
-	# Make sure we also set SYS_LOCALBASE in case user runs these stand-alone at some point
-        echo "if [ -z \"\$SYS_LOCALBASE\" ]; then SYS_LOCALBASE=\"${SYS_LOCALBASE}\" ; fi" >>"${dir}/${PBI_INS_PATHSCRIPT}"
-        echo "if [ -z \"\$SYS_LOCALBASE\" ]; then SYS_LOCALBASE=\"${SYS_LOCALBASE}\" ; fi" >>"${dir}/${PBI_UNINS_PATHSCRIPT}"
-        echo "if [ -z \"\$PBI_RCDIR\" ]; then PBI_RCDIR=\"${PBI_RCDIR}\" ; fi" >>"${dir}/${PBI_INS_PATHSCRIPT}"
-        echo "if [ -z \"\$PBI_RCDIR\" ]; then PBI_RCDIR=\"${PBI_RCDIR}\" ; fi" >>"${dir}/${PBI_UNINS_PATHSCRIPT}"
-        echo "if [ -z \"\$PBI_MANDIR\" ]; then PBI_MANDIR=\"${PBI_MANDIR}\" ; fi" >>"${dir}/${PBI_INS_PATHSCRIPT}"
-        echo "if [ -z \"\$PBI_MANDIR\" ]; then PBI_MANDIR=\"${PBI_MANDIR}\" ; fi" >>"${dir}/${PBI_UNINS_PATHSCRIPT}"
-        echo "if [ -z \"\$PBI_BINDIR\" ]; then PBI_BINDIR=\"${PBI_BINDIR}\" ; fi" >>"${dir}/${PBI_INS_PATHSCRIPT}"
-        echo "if [ -z \"\$PBI_BINDIR\" ]; then PBI_BINDIR=\"${PBI_BINDIR}\" ; fi" >>"${dir}/${PBI_UNINS_PATHSCRIPT}"
-
-	touch "$_tmpextf"
-	if [ -e "$_autoextf" ]; then cat "${_autoextf}" >> "${_tmpextf}" ; fi
-	if [ -e "$_extf" ]; then cat "${_extf}" >> "${_tmpextf}" ; fi
-
-        while read line
-        do
-		_bin="NO"
-		_wraponly="NO"
-		_crashhandle="YES"
-		_keep="YES"
-		_linux="NO"
-                echo $line | tr '\t' ' ' | tr -s ' ' | grep "^#" >/dev/null 2>/dev/null
-                if [ "$?" != "0" ] ; then
-                        src="`echo $line | tr '\t' ' ' | tr -s ' ' | cut -d ' ' -f 1`"
-                        tar="`echo $line | tr '\t' ' ' | tr -s ' ' | cut -d ' ' -f 2`"
-                        act="`echo $line | tr '\t' ' ' | tr -s ' ' | cut -d ' ' -f 3`"
-
-			if [ -z "$src" -o -z "$tar" ] ; then continue ; fi
-
-			# Check if this is an icon we need to preserve
-			echo $src | grep -q "^share/icons/"
-			if [ $? -eq 0 -a "${PBI_USESYSFONTS}" != "NO" ] ; then
-				iDir=`dirname $src`
-				if [ ! -d "${PBI_STAGEDIR}/${PBI_ICDIR}/${iDir}" ] ; then 
-					mkdir -p "${PBI_STAGEDIR}/${PBI_ICDIR}/${iDir}"
-				fi
-				cp "${PBI_STAGEDIR}/${src}" "${PBI_STAGEDIR}/${PBI_ICDIR}/${iDir}"
-				src="${PBI_ICDIR}/${src}"
-			fi
-
-			if [ ! -e "${PBI_STAGEDIR}/$src" ] ; then
-				echo "WARN: external_link target: \"$src -> $tar $act\" does not exist!"
-				continue
-			fi
-
-			# Check for act directives
-			for i in `echo ${act} | sed 's|,| |g'`
-  			do
-				case ${i} in
-					binary) _bin="YES" ;;
-	  			    binwrapper) _bin="YES" ; _wraponly="YES" ;;
-				       nocrash) _crashhandle="NO" ;;
-				          keep) _keep="YES" ;;
-				       replace) _keep="NO" ;;
-				         linux) _bin="YES" ; _linux="YES" ;;
-					*) echo "Warning: Unknown option \"$i\" in ${MOD_EXTLINKFILE}";;
-				esac
-				
-			done
-
-
-			# If we are doing a binary, run special function to make wrapper
-			if [ "$_bin" = "YES" ] ; then
-
-				# Make sure we don't create any duplicates
-				echo "$_donewrap" | grep "#${src}#" >/dev/null 2>/dev/null
-				if [ "$?" = "0" ] ; then continue ; fi
-				
-				# Make the binary wrapper
-				mk_path_wrappers "$src" "$tar" "$_crashhandle" "$_wraponly" "$_linux"
-
-				# This binary is done, save it now so we don't duplicate later
-				_donewrap="$_donewrap #${src}#"
-			else
-				# Make our link commands
-				if [ "$_keep" = "YES" ] ; then _lop="-fs"; else _lop="-s"; fi
-				echo $tar | grep -q "^man/"
-				if [ $? -eq 0 ] ; then
-					# Strip off the man/ path
-					_mTar=`echo $tar | sed 's|^man/||g'`
-					_dTar="\$PBI_MANDIR/${_mTar}"
-					echo "_bd=\"\`dirname ${_dTar}\`\"" >> "${dir}/${PBI_INS_PATHSCRIPT}"
-					echo "if [ ! -d \"\$_bd\" ]; then mkdir -p \"\${_bd}\"; fi" >> "${dir}/${PBI_INS_PATHSCRIPT}"
-					echo "if [ -e \"\$PBI_PROGDIRPATH/local/$src\" ]; then" >> "${dir}/${PBI_INS_PATHSCRIPT}"
-					echo "  ln ${_lop} $PBI_PROGDIRPATH/local/${src} \$PBI_MANDIR/${_mTar}" >> "${dir}/${PBI_INS_PATHSCRIPT}"
-					echo "fi" >> "${dir}/${PBI_INS_PATHSCRIPT}"
-				else
-					_dTar="\$SYS_LOCALBASE/${tar}"
-					echo "_bd=\"\`dirname ${_dTar}\`\"" >> "${dir}/${PBI_INS_PATHSCRIPT}"
-					echo "if [ ! -d \"\$_bd\" ] ; then mkdir -p \"\${_bd}\"; fi" >> "${dir}/${PBI_INS_PATHSCRIPT}"
-					echo "ln ${_lop} $PBI_PROGDIRPATH/local/${src} \$SYS_LOCALBASE/${tar}" >> "${dir}/${PBI_INS_PATHSCRIPT}"
-
-				fi
-			fi
-
-			# Make the uninstall command
-			echo "ls -al \"${_dTar}\" | grep \"> $PBI_PROGDIRPATH\" >/dev/null 2>/dev/null " \
-				>> "${dir}/${PBI_UNINS_PATHSCRIPT}"
-			echo "if [ \"\$?\" = \"0\" ] ; then" >> "${dir}/${PBI_UNINS_PATHSCRIPT}"
-			echo "	rm \"${_dTar}\"" >> "${dir}/${PBI_UNINS_PATHSCRIPT}"
-			echo "fi" >> "${dir}/${PBI_UNINS_PATHSCRIPT}"
-
-			echo " " >> "${dir}/${PBI_INS_PATHSCRIPT}"
-			echo " " >> "${dir}/${PBI_UNINS_PATHSCRIPT}"
-
-                fi
-
-        done < "${_tmpextf}"
-	rm "${_tmpextf}"
-
-	chmod 755 "${dir}/${PBI_INS_PATHSCRIPT}"
-	chmod 755 "${dir}/${PBI_UNINS_PATHSCRIPT}"
-}
-
-
-# Create the wrapper scripts for the specified binaries 
-mk_path_wrappers() {
-	dir="${PBI_STAGEDIRMNT}/${PBI_FAKEBIN_DIR}"
-	rcdir="${PBI_STAGEDIRMNT}/${PBI_FAKERC_DIR}"
-        if [ ! -d "${dir}" ] ; then mkdir -p "${dir}" ; fi
-
-	bin="${1}"
-	fbin="`basename ${bin}`"
-	tar="${2}"
-	ch="${3}"
-	onlywrap="${4}"
-	linwrap="${5}"
-
-	# Check if the fake-bin wrapper already exists, and if so use
-	# a different name
-	if [ -e "${dir}/${fbin}" ] ; then
-		fbin=`echo $bin | sed 's|/|-|g'`
-	fi
-
-	# If this is an rc.d script, add it to the PBI_RCDIR
-	if [ "`dirname $tar`" = "etc/rc.d" ] ; then
-			>> "${dir}/${PBI_INS_PATHSCRIPT}"
-		_dTar="\$PBI_RCDIR/`basename ${tar}`"
-		echo "_bd=\"\`dirname ${_dTar}\`\"" >> "${dir}/${PBI_INS_PATHSCRIPT}"
-		echo "if [ ! -d \"\$_bd\" ] ; then mkdir -p \"\${_bd}\"; fi" >> "${dir}/${PBI_INS_PATHSCRIPT}"
-		echo "ln -fs $PBI_PROGDIRPATH/${PBI_FAKERC_DIR}/${fbin} \$PBI_RCDIR/`basename ${tar}`" >> "${dir}/${PBI_INS_PATHSCRIPT}"
-
-		# Copy the wrapper binary
-		PBI_WRAPPERFILE="/.pbiwrapper-$ARCH"
-		cp ${PBI_WRAPPERFILE} ${rcdir}/${fbin}
-		chmod 755 ${rcdir}/${fbin}
-
-		# Create the wrapper .pbiopt
-		echo "PROGDIR: ${PBI_PROGDIRPATH}" >${rcdir}/${fbin}.pbiopt
-		echo "TARGET: ${bin}" >>${rcdir}/${fbin}.pbiopt
-		return
-	fi
-
-	# Make our link to the system localbase if its not a wrapper only
- 	if [ "$onlywrap" != "YES" ] ; then	
-		_mTar=`echo $tar | sed "s|^bin/||g" | sed "s|^sbin/||g"`
-		_dTar="\$PBI_BINDIR/${_mTar}"
-
-			>> "${dir}/${PBI_INS_PATHSCRIPT}"
-		echo "_bd=\"\`dirname ${_dTar}\`\"" >> "${dir}/${PBI_INS_PATHSCRIPT}"
-		echo "if [ ! -d \"\$_bd\" ] ; then mkdir -p \"\${_bd}\"; fi" >> "${dir}/${PBI_INS_PATHSCRIPT}"
-		echo "ln -fs $PBI_PROGDIRPATH/${PBI_FAKEBIN_DIR}/${fbin} \$PBI_BINDIR/${_mTar}" >> "${dir}/${PBI_INS_PATHSCRIPT}"
-	fi
-
-
-	# Copy the wrapper binary
-	PBI_WRAPPERFILE="/.pbiwrapper-$ARCH"
-	cp ${PBI_WRAPPERFILE} ${dir}/${fbin}
-	chmod 755 ${dir}/${fbin}
-
-	# Create the wrapper .pbiopt
-	echo "PROGDIR: ${PBI_PROGDIRPATH}" >${dir}/${fbin}.pbiopt
-	echo "TARGET: ${bin}" >>${dir}/${fbin}.pbiopt
-}
-
-# Create the install script for the PBI
-mk_install_script() {
-	echo "Creating install script..."
-	if [ ! -d "${PBI_STAGEDIRMNT}/${PBI_FAKEBIN_DIR}" ] ; then mkdir -p "${PBI_STAGEDIRMNT}/${PBI_FAKEBIN_DIR}" ; fi
-	if [ ! -d "${PBI_STAGEDIRMNT}/${PBI_FAKERC_DIR}" ] ; then mkdir -p "${PBI_STAGEDIRMNT}/${PBI_FAKERC_DIR}" ; fi
-	insc="${PBI_STAGEDIRMNT}/${PBI_FAKEBIN_DIR}/.pbi-install.sh"
-	echo "#!/bin/sh" > "$insc"
-	echo "PBI_WRAPPERBIN=\"${PBI_FAKEBIN_DIR}\"" >> "$insc"
-	echo "PBI_PROGDIRPATH=\"${PBI_PROGDIRPATH}\"" >> "$insc"
-	echo "SYS_LOCALBASE=\"${SYS_LOCALBASE}\"" >> "$insc"
-	echo "cd \"\$PBI_PROGDIRPATH\"" >> "$insc"
-
-	# Add the binary wrapper sym-links
-        if [ -e "${PBI_STAGEDIRMNT}/${PBI_FAKEBIN_DIR}/${PBI_INS_PATHSCRIPT}" ] ; then
-		echo 'if [ `id -u` = "0" ] ; then ' >>${insc}
-		echo "	$PBI_PROGDIRPATH/${PBI_FAKEBIN_DIR}/${PBI_INS_PATHSCRIPT}" >>${insc}
-		echo "fi" >>${insc}
-	fi
-
-	# Look for any XDG scripts
-        if [ -e "${PBI_STAGEDIRMNT}/${PBI_APPMIME_DIR}/${PBI_INS_MIMESCRIPT}" ] ; then
-		echo "$PBI_PROGDIRPATH/${PBI_APPMIME_DIR}/${PBI_INS_MIMESCRIPT}" >>${insc}
-	fi
-        if [ -e "${PBI_STAGEDIRMNT}/${PBI_APPMENU_DIR}/${PBI_INS_MENUSCRIPT}" ] ; then
-		echo "$PBI_PROGDIRPATH/${PBI_APPMENU_DIR}/${PBI_INS_MENUSCRIPT}" >>${insc}
-	fi
-
-	chmod 755 "${insc}"
-	
-}
-
-# Create the deinstall script for the PBI
-mk_deinstall_script() {
-	echo "Creating deinstall script..."
-	uisc="${PBI_STAGEDIRMNT}/${PBI_FAKEBIN_DIR}/.pbi-uninstall.sh"
-
-	echo "#!/bin/sh" > "$uisc"
-	echo "PBI_PROGDIRPATH=\"${PBI_PROGDIRPATH}\"" >> "$uisc"
-	echo "SYS_LOCALBASE=\"${SYS_LOCALBASE}\"" >> "$uisc"
-
-	# Remove the binary wrapper sym-links
-        if [ -e "${PBI_STAGEDIRMNT}/${PBI_FAKEBIN_DIR}/${PBI_UNINS_PATHSCRIPT}" ] ; then
-		echo 'if [ `id -u` = "0" ] ; then ' >>${uisc}
-		echo "	$PBI_PROGDIRPATH/${PBI_FAKEBIN_DIR}/${PBI_UNINS_PATHSCRIPT}" >>${uisc}
-		echo "fi" >>${uisc}
-	fi
-
-	# Look for any XDG scripts
-        if [ -e "${PBI_STAGEDIRMNT}/${PBI_APPMIME_DIR}/${PBI_UNINS_MIMESCRIPT}" ] ; then
-		echo "$PBI_PROGDIRPATH/${PBI_APPMIME_DIR}/${PBI_UNINS_MIMESCRIPT}" >>${uisc}
-	fi
-        if [ -e "${PBI_STAGEDIRMNT}/${PBI_APPMENU_DIR}/${PBI_UNINS_MENUSCRIPT}" ] ; then
-		echo "$PBI_PROGDIRPATH/${PBI_APPMENU_DIR}/${PBI_UNINS_MENUSCRIPT}" >>${uisc}
-	fi
-	chmod 755 "${uisc}"
-}
-
-# Create a dir for manipulating header info
-mk_header_dir() {
-	PBI_HEADERDIR="${PBI_STAGEDIRMNT}/pbimeta"
-	if [ -e "${PBI_HEADERDIR}" ] ; then rm -rf "${PBI_HEADERDIR}" ; fi
-	mkdir -p ${PBI_HEADERDIR}
-}
-
-# Create a dir for staging the final archive
-mk_stage_dir() {
-	if [ -n "$1" ] ; then
-		cpDir="$1"
-	else
-		cpDir="${PBI_PROGDIRPATH}"
-	fi
-
-	PBI_STAGEDIR="${PBI_PROGDIRPATH}/.stagedir"
-	echo "Creating Stage Dir: ${PBI_STAGEDIR}"
-	if [ -e "${PBI_STAGEDIR}" ] ; then 
-		rm -rf "${PBI_STAGEDIR}" 2>/dev/null
-		chflags -R noschg ${PBI_STAGEDIR} 2>/dev/null
-		rm -rf "${PBI_STAGEDIR}" 2>/dev/null
-	fi
-	mkdir -p ${PBI_STAGEDIR}
-
-	mkdir -p ${PBI_STAGEDIR}/local
-	mkdir -p ${PBI_STAGEDIR}/etc
-	mkdir -p ${PBI_STAGEDIR}/rc.d
-	mkdir -p ${PBI_STAGEDIR}/pbimeta
-	mkdir -p ${PBI_STAGEDIR}/virtbase
-	mkdir -p ${PBI_STAGEDIR}/linux
-	mkdir -p ${PBI_STAGEDIR}/run
-
-	# If we built with a module / conf directory, lets include it
-	if [ -d "${PBI_CONFDIR}" ] ; then cp -r ${PBI_CONFDIR} ${PBI_STAGEDIR}/pbiconf; fi
-
-	local _excOpts=""
-
-	# Build module list of excludes
-	if [ -n "$PBI_EXCLUDELIST" ] ; then
-		for excl in $PBI_EXCLUDELIST
-		do
-			if [ -z "$_excOpts" ] ; then
-				_excOpts="--exclude ${excl}"
-			else
-				_excOpts="$_excOpts --exclude ${excl}"
-			fi
-		done
-	fi
-
-	if [ "$2" = "move" ] ; then
-		rmdir ${PBI_STAGEDIR}/local
-		mv ${cpDir} ${PBI_STAGEDIR}/local
-		ln -s ${PBI_STAGEDIR}/local /usr/local
-	else
-		# Now copy the stagedir
-		tar cf - ${_excOpts} --exclude .stagedir \
-		--exclude .pkgdb --exclude .ld-elf.hints --exclude make.conf \
-		--exclude make.conf.bak --exclude .keepports \
-		-C "${cpDir}" . 2>/dev/null \
-		| tar xpf - -C ${PBI_STAGEDIR}/local 2>/dev/null
-	fi
-
-	cd ${PBI_PROGDIRPATH}
-	PBI_STAGEDIRMNT="${PBI_STAGEDIR}"
-	PBI_STAGEDIR="${PBI_STAGEDIR}/local"
-}
-
-# Remove the stagedir
-rm_stage_dir() {
-	# If this is in the chroot we can exit and let the parent cleanup
-	if [ "$0" = "pbi_makeport_chroot" ] ; then return; fi
-
-	cd /
-	PBI_STAGEDIR="${PBI_PROGDIRPATH}/.stagedir"
-	if [ -e "${PBI_STAGEDIR}" ] ; then 
-		rm -rf "${PBI_STAGEDIR}" 2>/dev/null
-		chflags -R noschg ${PBI_STAGEDIR} 2>/dev/null
-		rm -rf "${PBI_STAGEDIR}" 2>/dev/null
-	fi
-}
-
-# See if we need to clean the icons dir
-clean_icons_dir() {
-	if [ "${PBI_USESYSFONTS}" != "NO" ] ; then
-		rm -rf ${PBI_STAGEDIR}/share/icons >/dev/null 2>/dev/null
-		mkdir ${PBI_STAGEDIR}/share/icons >/dev/null 2>/dev/null
-	fi
-}
-
-# See if we need to clean the stagedir
-clean_stage_dir() {
-
-	if [ "${PBI_USESYSGL}" != "NO" ] ; then
-		rm ${PBI_STAGEDIR}/lib/libGl.* >/dev/null 2>/dev/null
-		rm ${PBI_STAGEDIR}/lib/libGL.* >/dev/null 2>/dev/null
-		rm ${PBI_STAGEDIR}/lib/libGLU.* >/dev/null 2>/dev/null
-	fi
-	if [ "${PBI_USESYSFONTS}" != "NO" ] ; then
-		rm -rf ${PBI_STAGEDIR}/etc/fonts/* >/dev/null 2>/dev/null
-		rm -rf ${PBI_STAGEDIR}/lib/X11/fonts/* >/dev/null 2>/dev/null
-		rm -rf ${PBI_STAGEDIR}/lib/X11/icons/* >/dev/null 2>/dev/null
-	fi
-	if [ -e "${PBI_STAGEDIR}/lib/X11" ] ; then
-		mkdir -p ${PBI_STAGEDIR}/lib/X11/icons/ >/dev/null 2>/dev/null
-		mkdir -p ${PBI_STAGEDIR}/lib/X11/fonts/ >/dev/null 2>/dev/null
-		mkdir -p ${PBI_STAGEDIR}/etc/fonts/ >/dev/null 2>/dev/null
-	fi
-}
-
-# Copy over any resource files into the PBI dir
-copy_resource_dir() {
-	if [ -d "${PBI_CONFDIR}/${PBI_RESOURCE_DIR}" ] ; then
-		echo "Copying ${PBI_CONFDIR}/${PBI_RESOURCE_DIR} -> ${PBI_STAGEDIR}"
-		tar cf - -C ${PBI_CONFDIR}/${PBI_RESOURCE_DIR} --exclude .svn . 2>/dev/null \
-		| tar xpf - -C ${PBI_STAGEDIR} 2>/dev/null
-	fi
-}
-
-# Check if tar supports lzma compression
-test_tar_lzma() {
-	touch /tmp/.pbilzma.$$ >/dev/null 2>/dev/null
-	tar cJf /tmp/.pbilzma.tar.$$ /tmp/.pbilzma.$$ >/dev/null 2>/dev/null
-	_exitcode=$?
-	rm /tmp/.pbilzma.$$ >/dev/null 2>/dev/null
-	rm /tmp/.pbilzma.tar.$$ >/dev/null 2>/dev/null
-	return $_exitcode
-}
-
-# Start creating the application archive 
-mk_archive_file() {
-        # Build module list of excludes
-        if [ -n "$PBI_EXCLUDELIST" ] ; then
-                for excl in $PBI_EXCLUDELIST
-                do
-                        if [ -z "$_excOpts" ] ; then
-                                _excOpts="--exclude ${excl}"
-                        else
-                                _excOpts="$_excOpts --exclude ${excl}"
-                        fi
-                done
-        fi
-	PBI_CREATE_ARCHIVE="${PBI_CREATE_OUTDIR}/.PBI.$$.tbz"
-	if test_tar_lzma ; then _tcmp="J" ; else _tcmp="j" ; fi
-	echo "Creating compressed archive..."
-	tar c${_tcmp}f "${PBI_CREATE_ARCHIVE}" ${_excOpts} -C ${PBI_STAGEDIRMNT} . 2>/dev/null
-}
-
-# Start creating the header archive
-mk_header_file() {
-	PBI_HEADER_ARCHIVE="${PBI_CREATE_OUTDIR}/.PBI-header.$$.tbz"
-	tar cjf ${PBI_HEADER_ARCHIVE} -C ${PBI_HEADERDIR} . >/dev/null 2>/dev/null
-}
-
-# Start copying pbi details into header file
-save_pbi_details_to_header() {
-	local _osArch="$ARCH"
-	local _osRel="$FBSDREL"
-	if [ -n "${PBI_OSREL}" ] ; then
-		_osRel="${PBI_OSREL}"
-	fi
-
-	if [ "${PBI_CREATEONLY}" = "YES" ] ; then
-		_pbilow="`echo ${PBI_PROGNAME} | tr '[:upper:]' '[:lower:]' | sed 's| ||g'`"
-		echo "${PBI_APPDIR}/${_pbilow}-${_osArch}" > "${PBI_HEADERDIR}/pbi_defaultpath"
-	else	
-		echo "${PBI_PROGDIRPATH}" > "${PBI_HEADERDIR}/pbi_defaultpath"
-	fi
-	echo "${PBI_PROGNAME}" > "${PBI_HEADERDIR}/pbi_name"
-	echo "${PBI_PROGVERSION}" > "${PBI_HEADERDIR}/pbi_version"
-	echo "${PBI_PROGAUTHOR}" > "${PBI_HEADERDIR}/pbi_author"
-	echo "${PBI_PROGWEB}" > "${PBI_HEADERDIR}/pbi_web"
-	date "+%Y%m%d %H%M%S" > "${PBI_HEADERDIR}/pbi_mdate"
-
-	if [ "${PBI_REQUIRESROOT}" = "YES" ] ; then
-		touch ${PBI_HEADERDIR}/pbi_requiresroot
-	fi
-
-	# Do we have a license to accept?
-	if [ -e "${PBI_CONFDIR}/${PBI_LICENSEFILE}" ] ; then
-		cp "${PBI_CONFDIR}/${PBI_LICENSEFILE}" "${PBI_HEADERDIR}/${PBI_LICENSEFILE}"
-	fi
-
-	# Do we have a conf-supplied meta-file to copy?
-	if [ -e "${PBI_CONFDIR}/${PBI_USERMETAFILE}" ] ; then
-		cp "${PBI_CONFDIR}/${PBI_USERMETAFILE}" "${PBI_HEADERDIR}/${PBI_USERMETAFILE}"
-	fi
-	# Do we have a user-supplied meta-file to copy?
-	if [ -n "$PBI_CREATE_USERMETA" ] ; then
-		cp "$PBI_CREATE_USERMETA" "${PBI_HEADERDIR}/${PBI_USERMETAFILE}"
-	fi
-
-	# Check for additional meta-data
-	if [ -n "$PBI_LICENSE" ] ; then
-		echo "$PBI_LICENSE" > ${PBI_HEADERDIR}/pbi_license
-	fi
-	if [ -n "$PBI_TAGS" ] ; then
-		echo "$PBI_TAGS" > ${PBI_HEADERDIR}/pbi_tags
-	fi
-	if [ -n "$PBI_PROGTYPE" ] ; then
-		echo "$PBI_PROGTYPE" > ${PBI_HEADERDIR}/pbi_type
-	fi
-	if [ -n "$PBI_CATEGORY" ] ; then
-		echo "$PBI_CATEGORY" > ${PBI_HEADERDIR}/pbi_category
-	fi
-	if [ -n "$PBI_ICONURL" ] ; then
-		echo "$PBI_ICONURL" > ${PBI_HEADERDIR}/pbi_iconurl
-	fi
-	if [ -n "$PBI_DESC" ] ; then
-		echo "$PBI_DESC" > ${PBI_HEADERDIR}/pbi_desc
-	fi
-	if [ -n "$PBI_SHORTDESC" ] ; then
-		echo "$PBI_SHORTDESC" > ${PBI_HEADERDIR}/pbi_shortdesc
-	fi
-	if [ -n "$PBI_MAINTAINER" ] ; then
-		echo "$PBI_MAINTAINER" > ${PBI_HEADERDIR}/pbi_maintainer
-	fi
-
-	# Custom install / remove scripts
-	if [ -e "${PBI_CONFDIR}/${PBI_CONF_SCRIPTSDIR}/${MOD_PREINS}" ] ; then
-		cp "${PBI_CONFDIR}/${PBI_CONF_SCRIPTSDIR}/${MOD_PREINS}" \
-			"${PBI_HEADERDIR}/${MOD_PREINS}"
-	else
-		echo "#!/bin/sh" > ${PBI_HEADERDIR}/${MOD_PREINS}
-	fi
-	if [ -e "${PBI_CONFDIR}/${PBI_CONF_SCRIPTSDIR}/${MOD_POSTINS}" ] ; then
-		cp "${PBI_CONFDIR}/${PBI_CONF_SCRIPTSDIR}/${MOD_POSTINS}" \
-			"${PBI_HEADERDIR}/${MOD_POSTINS}"
-	else
-		echo "#!/bin/sh" > ${PBI_HEADERDIR}/${MOD_POSTINS}
-	fi
-	if [ -e "${PBI_CONFDIR}/${PBI_CONF_SCRIPTSDIR}/${MOD_PREREM}" ] ; then
-		cp "${PBI_CONFDIR}/${PBI_CONF_SCRIPTSDIR}/${MOD_PREREM}" \
-			"${PBI_HEADERDIR}/${MOD_PREREM}"
-	else
-		echo "#!/bin/sh" > ${PBI_HEADERDIR}/${MOD_PREREM}
-	fi
-
-	# Copy over our icon
-	if [ -n "${PBI_PROGICON}" -a -e "${PBI_STAGEDIR}/${PBI_PROGICON}" ] ; then
-		# Get the file extension
-		_iconExt=`echo "$PBI_PROGICON" | awk -F . '{print $NF}'`
-		cp "${PBI_STAGEDIR}/${PBI_PROGICON}" "${PBI_HEADERDIR}/pbi_icon.${_iconExt}" >/dev/null 2>/dev/null
-	else
-		_iconExt=`echo "$PBI_DEFAULT_ICON_CHROOT" | awk -F . '{print $NF}'`
-		cp "${PBI_DEFAULT_ICON_CHROOT}" "${PBI_HEADERDIR}/pbi_icon.${_iconExt}" >/dev/null 2>/dev/null
-	fi
-
-	# Check for any gui images
-	if [ -e "${PBI_STAGEDIR}/${PBI_GUITOPBANNER}" ] ; then
-		cp "${PBI_STAGEDIR}/${PBI_GUITOPBANNER}" "${PBI_HEADERDIR}/top-banner.png"
-	fi
-	if [ -e "${PBI_STAGEDIR}/${PBI_GUISIDEBANNER}" ] ; then
-		cp "${PBI_STAGEDIR}/${PBI_GUISIDEBANNER}" "${PBI_HEADERDIR}/side-banner.png"
-	fi
-
-	# Save the uname details
-	echo "${_osArch}" > "${PBI_HEADERDIR}/pbi_arch"
-	echo "${_osRel}" > "${PBI_HEADERDIR}/pbi_fbsdver"
-	echo "${PROGVERSION}" > "${PBI_HEADERDIR}/pbi_createver"
-
-	# Get the total number of files in the STAGEDIR
-	get_filetotal_dir "${PBI_STAGEDIR}"
-	echo "${FILETOTAL}" > "${PBI_HEADERDIR}/pbi_archivecount"
-
-	# Save a checksum of archive file
-	sha256 -q "${PBI_CREATE_ARCHIVE}" > "${PBI_HEADERDIR}/pbi_archivesum"
-
-	sign_pbi_files "$PBI_HEADERDIR"
-}
-
-# Use openssl to sign parts of the pbi header structure and archive 
-sign_pbi_files() {
-	if [ -z "${PBI_SSLPRIVKEY}" ] ; then return 0 ; fi
-	_sf="${1}/pbi_archivesum ${1}/${MOD_PREINS} ${1}/${MOD_POSTINS} ${1}/${MOD_PREREM}"
-	for i in $_sf
-	do
-		openssl dgst -sha1 \
-  			-sign ${PBI_SSLPRIVKEY} \
-  			-out ${i}.sha1 \
-  			${i} >/dev/null 2>/dev/null
-	done
-}
-
-# All the pieces are ready, spit out the final PBI file
-mk_output_pbi() {
-        if [ -n "${PBI_PROGICON}" -a -e "${PBI_STAGEDIR}/${PBI_PROGICON}" ] ; then
-                icon="${PBI_STAGEDIR}/${PBI_PROGICON}"
-        else
-                icon="${PBI_DEFAULT_ICON_CHROOT}"
-        fi
-
-	# Set PBI name all lower-case
-	_pbilow="`echo ${PBI_PROGNAME} | tr '[:upper:]' '[:lower:]' | sed 's| ||g'`"
-	outfile="${PBI_CREATE_OUTDIR}/${_pbilow}-${PBI_PROGVERSION}-${ARCH}.pbi"
-
-	mark1="${PBI_CREATE_OUTDIR}/.pbimark1.$$"
-	mark2="${PBI_CREATE_OUTDIR}/.pbimark2.$$"
-	echo "
-${PBI_SS_ICON}" >$mark1
-	echo "
-${PBI_SS_ARCHIVE}" >$mark2
-
-
-	# DO IT, DO IT NOW!!!
-	cat ${PBI_HEADER_ARCHIVE} $mark1 ${icon} $mark2 ${PBI_CREATE_ARCHIVE} > ${outfile}
-	sha256 -q ${outfile} > ${outfile}.sha256
-
-	echo "Created PBI: ${outfile}"
-
-	rm $mark1
-	rm $mark2
-	rm ${PBI_HEADER_ARCHIVE}
-	rm ${PBI_CREATE_ARCHIVE}
-}
-
-get_filetotal_dir() {
-	FILETOTAL="`find ${1} | wc -l | tr -d ' '`"
-}
-
 pbi_delete_init() {
-  	require_root_or_group
 	init_tmpdir
 	parse_delete_pbi_cmdline "$@"
 	do_pbi_delete
@@ -2454,138 +711,37 @@ pbi_delete_init() {
 # Delete this PBI
 do_pbi_delete() {
 
-	# Not doing a container delete, lets nuke the packages
-	if [ "$PBI_CONTAINER" != "YES" ] ; then
-		# First confirm this package is installed
-		pkg-static query '%n' $PBI_ORIGIN 2>/dev/null >/dev/null
-		if [ $? -ne 0 ] ; then
-			exit_err "$PBI_DELETENAME is not installed!"
-		fi
-		require_root
-		
-		if [ "$PBI_FORCEDELETE" = "YES" ] ; then
-			pOpts="-y -f"
-		else
-			pOpts="-y"
-		fi
-
-		pkg-static delete $pOpts $PBI_ORIGIN
-		if [ $? -eq 0 ] ; then
-			echo "WARNING: Did not completely remove ${PBI_ORIGIN}, use -f to force."
-		fi
-
-		# Check if we can remove any plugins
-		for i in $PBI_PLUGINS
-		do
-			pkg-static delete ${pOpts} $i
-			if [ $? -eq 0 ] ; then
-				echo "WARNING: Did not remove optional plugin ${i}"
-			fi
-		done
-		
-		# Do any package autoremove cleanup
-		pkg-static autoremove -y
-		
-		exit_trap
-	fi
-
-	load_info_from_dir "${PBI_DBAPPDIR}/${PBI_DELETENAME}"
-	PBI_PROGDIRPATH="${PBI_ORIGPROGDIRPATH}"
-
-	get_username_from_file "${PBI_DBAPPDIR}/${PBI_DELETENAME}/pbi_name"
-	if [ "$FILEUSER" != `whoami` -a `id -u` != "0" ] ; then
-		exit_err "Permission denied to modify PBI installed by: $FILEUSER"
-	fi
-
-	# Set the dirty flag that we are removing this PBI
-	touch ${PBI_DBAPPDIR}/${PBI_DELETENAME}/.pbiDeleted
-
-	check_preremove_script
-	run_remove_script
- 	remove_pbidir
-	unregister_pbi
-	
-}
-
-# Run the removal script for this PBI
-run_remove_script() {
-	uisc="${PBI_PROGDIRPATH}/${PBI_FAKEBIN_DIR}/.pbi-uninstall.sh"
-	if [ ! -e "$uisc" ] ; then return 0 ; fi
-
-	# If not running as root, be sure to cleanup path links
-	if [ "`id -u`" != "0" ]; then
-	 	cat ${PBI_PROGDIRPATH}/${PBI_FAKEBIN_DIR}/${PBI_UNINS_PATHSCRIPT} | grep 'rm "$SYS_LOCALBASE/bin' | sed 's|$SYS_LOCALBASE|${HOME}|g' >${PBI_TMPDIR}/.binlnks
-         	while read lnk
-          	do
-               	 	/bin/sh -c "${lnk}"
-          	done <${PBI_TMPDIR}/.binlnks
-          	rm ${PBI_TMPDIR}/.binlnks
-        fi
-        export_script_vars
-	if [ "$PBI_VERBOSE" = "YES" ] ; then
-       		sh "${uisc}"
-	else
-       		sh "${uisc}" >/dev/null 2>/dev/null
-	fi
-}
-
-# Function to check the supplied $1 dir for any mounts before we
-# do a rm -rf
-umount_before_rm()
-{
-   	if [ -z "${1}" ] ; then return 0 ; fi
-
-        local _ddir="$1"
-        echo "$_ddir" | rev | grep -q '^/'	
+	# First confirm this package is installed
+	pkg-static query '%n' $PBI_ORIGIN 2>/dev/null >/dev/null
 	if [ $? -ne 0 ] ; then
-	   _ddir="${_ddir}/"
+		exit_err "$PBI_DELETENAME is not installed!"
 	fi
+	require_root
 	
-	mount | grep -q "on ${_ddir}"
-	if [ $? -ne 0 ] ; then return 0; fi
+	if [ "$PBI_FORCEDELETE" = "YES" ] ; then
+		pOpts="-y -f"
+	else
+		pOpts="-y"
+	fi
 
-        for i in `mount | grep "on ${_ddir}" | awk '{print $3}'`
+	pkg-static delete $pOpts $PBI_ORIGIN
+	if [ $? -eq 0 ] ; then
+		echo "WARNING: Did not completely remove ${PBI_ORIGIN}, use -f to force."
+	fi
+
+	# Check if we can remove any plugins
+	for i in $PBI_PLUGINS
 	do
-	   umount -f ${i} >/dev/null 2>/dev/null
-	   if [ $? -ne 0 ] ; then 
-		exit_err "Could not umount ${i} before rm -rf, bailing!"
-	   fi
+		pkg-static delete ${pOpts} $i
+		if [ $? -eq 0 ] ; then
+			echo "WARNING: Did not remove optional plugin ${i}"
+		fi
 	done
-	return 0
-}
-
-# Remove the pbi directory
-remove_pbidir() {
-	if [ -z "${PBI_PROGDIRPATH}" ] ; then return 0 ; fi
-	if [ ! -d "${PBI_PROGDIRPATH}" ] ; then return 0 ; fi
-	if [ "${PBI_PROGDIRPATH}" = "/" ] ; then return 0 ; fi
-	if [ "$PBI_VERBOSE" = "YES" ] ; then
-		echo "Removing: ${PBI_PROGDIRPATH}"
-	fi
-
-        # Make sure we are unmounted
-        umount_before_rm "${PBI_PROGDIRPATH}"
 	
-	rm -rf "${PBI_PROGDIRPATH}" >/dev/null 2>/dev/null
-
-	# Do we have leftovers?
-	if [ -d "${PBI_PROGDIRPATH}" ] ; then
-		chflags -R noschg "${PBI_PROGDIRPATH}" >/dev/null 2>/dev/null
-		chmod -R 777 "${PBI_PROGDIRPATH}" >/dev/null 2>/dev/null
-		rm -rf "${PBI_PROGDIRPATH}" >/dev/null 2>/dev/null
-	fi
-}
-
-# Remove this PBI registration
-unregister_pbi() {
-	if [ -z "${PBI_DBAPPDIR}" ] ; then return 0 ; fi
-	if [ -z "${PBI_DELETENAME}" ] ; then return 0 ; fi
-	if [ ! -d "${PBI_DBAPPDIR}/${PBI_DELETENAME}" ] ; then return 0 ; fi
-	if [ "$PBI_VERBOSE" = "YES" ] ; then
-		echo "Removing: ${PBI_DBAPPDIR}/${PBI_DELETENAME}"
-	fi
-	rm -rf "${PBI_DBAPPDIR}/${PBI_DELETENAME}"
-
+	# Do any package autoremove cleanup
+	pkg-static autoremove -y
+		
+	exit_trap
 }
 
 # Check if we have a preinstall script we need to use
@@ -2595,132 +751,47 @@ check_preremove_script() {
 	if [ "$PBI_VERBOSE" = "YES" ] ; then
 		echo "Running pre-removal script: ${PBI_DBAPPDIR}/${PBI_DELETENAME}/${MOD_PREREM}"
 	fi
-        export_script_vars
        	sh "${PBI_DBAPPDIR}/${PBI_DELETENAME}/${MOD_PREREM}"
 }
 
-add_app_path_links()
-{
-	# If root, run the regular path script
-	if [ `id -u` = "0" ] ; then
-		sh "${1}/${PBI_FAKEBIN_DIR}/${PBI_INS_PATHSCRIPT}" >/dev/null 2>/dev/null
-		return
-	fi
-
-	# Running as user add to ~/bin
-	init_tmpdir
-	if [ ! -d "${HOME}/bin" ] ; then mkdir -p "${HOME}/bin"; fi
-	cat ${1}/${PBI_FAKEBIN_DIR}/${PBI_INS_PATHSCRIPT} | grep "${1}/${PBI_FAKEBIN_DIR}" | grep '$PBI_BINDIR' | sed 's|$PBI_BINDIR|${HOME}/bin|g' >${PBI_TMPDIR}/.binlnks
-	while read lnk
-	do
-		/bin/sh -c "${lnk}"
-		
-	done <${PBI_TMPDIR}/.binlnks
-	rm ${PBI_TMPDIR}/.binlnks
-	
-}
-
-del_app_path_links()
-{
-	# If root, run the regular path script
-	if [ `id -u` = "0" ] ; then
-		sh "${1}/${PBI_FAKEBIN_DIR}/${PBI_UNINS_PATHSCRIPT}" >/dev/null 2>/dev/null
-		return
-	fi
-
-	# Running as user remove from ~/bin
-	if [ ! -d "${HOME}/bin" ] ; then mkdir -p "${HOME}/bin"; fi
-	for lnk in `ls ${1}/${PBI_FAKEBIN_DIR}`
-	do
-		if [ "$lnk" = "$PBI_INS_PATHSCRIPT" -o "$lnk" = "$PBI_UNINS_PATHSCRIPT" ]
-		then
-			continue
-		fi
-
-		if [ ! -e "${HOME}/bin/$lnk" ] ; then continue ; fi
-		if [ ! -h "${HOME}/bin/$lnk" ] ; then continue ; fi
-			
-		ls -al "${HOME}/bin/$lnk" | awk '{print $11}' | grep $1 >/dev/null 2>/dev/null
-		if [ "$?" = "0" ] ; then
-			rm ${HOME}/bin/$lnk
-		fi
-	done
-	
-}
-
 is_pbi_installed() {
-	
-	# Check if the container version is loaded
-	for lPBI in `ls ${PBI_DBAPPDIR}/ 2>/dev/null`
-	do
-		if [ ! -e "${PBI_DBAPPDIR}/${lPBI}/pbi_name" ] ; then
-			continue
-		fi
-		_tLow="`cat $lPBI/pbi_name | tr '[:upper:]' '[:lower:]' | sed 's| ||g'`"
-		if [ "$_tLow" = "$PBI_PROGNAME" ] ; then 
-			PBI_CONTAINER="YES"
-			return 0
-		fi
-	done
-
-	# Now check for pkgng version
+	# check for pkgng version
 	pkg-static query '%n' $1 >/dev/null 2>/dev/null
 	if [ $? -eq 0 ] ; then return 0; fi
-
 	return 1
 }
 
 pbi_icon_init() {
 	parse_icon_pbi_cmdline "$@"
-	
 	do_pbi_icon
 }
 
 # Start the PBI icon process
 do_pbi_icon() {
 
-	if [ "$PBI_CONTAINER" = "YES" ] ; then
-           	PBI_EXEDIR="$PBI_PROGDIRPATH/$PBI_FAKEBIN_DIR/"
-		PBI_LAPPDIR="${PBI_PROGDIRPATH}/local/"
-	else
-           	PBI_EXEDIR=""
-		PBI_LAPPDIR="/usr/local/"
-	fi
-
-	# Only need to do path links when working with containers
-	if [ "${PBI_PATHADD}" = "YES" -a "$PBI_CONTAINER" = "YES" ] ; then
-		add_app_path_links "$_appDir"
-	fi
-	if [ "${PBI_PATHDEL}" = "YES" -a "$PBI_CONTAINER" = "YES" ] ; then
-		del_app_path_links "$_appDir"
-	fi
+        PBI_EXEDIR=""
+	PBI_LAPPDIR="/usr/local/"
 
 	# Add desktop / menu icons
 	if [ "${PBI_DESKADD}" = "YES" ] ; then
-		require_root_or_group
-		add_xdg_icon "$PBI_ORIGIN" "desktop"
+		add_xdg_icon "$PBI_CONFDIR" "desktop"
 	fi
 	if [ "${PBI_DESKDEL}" = "YES" ] ; then
-		require_root_or_group
-		del_xdg_icon "$PBI_ORIGIN" "desktop"
+		del_xdg_icon "$PBI_CONFDIR" "desktop"
 	fi
 	if [ "${PBI_MENUADD}" = "YES" ] ; then
-		require_root_or_group
-		add_xdg_icon "$PBI_ORIGIN" "menu"
+		add_xdg_icon "$PBI_CONFDIR" "menu"
 	fi
 	if [ "${PBI_MENUDEL}" = "YES" ] ; then
-		require_root_or_group
-		del_xdg_icon "$PBI_ORIGIN" "menu"
+		del_xdg_icon "$PBI_CONFDIR" "menu"
 	fi
 
 	# Add mime types
 	if [ "${PBI_MIMEADD}" = "YES" ] ; then
-		require_root_or_group
-		add_xdg_icon "$PBI_ORIGIN" "mime"
+		add_xdg_icon "$PBI_CONFDIR" "mime"
 	fi
 	if [ "${PBI_MIMEDEL}" = "YES" ] ; then
-		require_root_or_group
-		del_xdg_icon "$PBI_ORIGIN" "mime"
+		del_xdg_icon "$PBI_CONFDIR" "mime"
 	fi
 
 	exit_trap
@@ -2810,24 +881,13 @@ check_xdg_icon() {
 	# Does the icon exist?
 	if [ -e "$iPath" ] ; then return ; fi
 
-	# No icon? Lets check for one in the resources dir and setup
-	if [ "$PBI_CONTAINER" = "YES" ] ; then
-		iPath=`echo $iPath | sed "s|${PBI_PROGDIRPATH}/local/||g"`
-	else
-		iPath=`echo $iPath | sed "s|/usr/local/||g"`
-	fi
-	
 	# Do we have an icon in resources?
-	if [ ! -e "${PBI_DBINDEXDIR}/$2/resources/${iPath}" ] ; then
+	if [ ! -e "${PBI_DBINDEXDIR}/$2/icon.png" ] ; then
 		return
 	fi
 
-	# Copy the icon file
-	local iFile=`basename $iPath`
-	cp "${PBI_DBINDEXDIR}/$2/resources/${iPath}" ${PBI_XDGICONDIR}/${iFile}
-
 	# Update the location in the XDG file
-	sed -i '' "s|^Icon=$oPath|Icon=${PBI_XDGICONDIR}/${iFile}|g" ${1}
+	sed -i '' "s|^Icon=$oPath|Icon=${PBI_DBINDEXDIR}/$2/icon.png|g" ${1}
 }
 
 pbid_init() {
@@ -2836,18 +896,6 @@ pbid_init() {
 	parse_pbid_cmdline "$@"
 
 	do_pbid
-}
-
-# This is a crude hack, but we need to copy libGL* to a location outside
-# of /usr/local for PBIs to be able to access them
-check_populate_opengl()
-{
-  local lG
-  for i in `ls /usr/local/lib/libGl.* /usr/local/lib/libGL.* /usr/local/lib/libGLU.* /usr/local/lib/libnvidia-* 2>/dev/null`
-  do
-    lG=`basename $i`
-    cp ${i} /usr/lib/${lG}
-  done
 }
 
 # Start the PBID daemon
@@ -2868,9 +916,6 @@ do_pbid() {
 	_redir="&1"
 	if [ "${PBI_VERBOSE}" != "YES" ] ; then _redir="/dev/null" ; fi
 	echo "Started pbid: `date`" > ${_pbid_log}
-
-	# Check for opengl libs to link
-	check_populate_opengl
 
 	while
 	i=1
@@ -2920,25 +965,6 @@ do_pbi_info() {
 	fi
 
 	if [ "$PBI_INFONAME" = "--ALL--" ] ; then
-		# List PBI containers First
-		for i in `ls ${PBI_DBAPPDIR}/ 2>/dev/null`
-		do
-			echo "PBIs installed into containers"
-			echo "-------------------------------"
-			if [ -e "${PBI_DBAPPDIR}/${i}/pbi_name" ] ; then
-				if [ "$PBI_VERBOSE" = "YES" ] ; then
-					PBI_CONTAINER="YES"
-        				load_info_from_dir "${PBI_DBAPPDIR}/${i}"
-					get_username_from_file "${PBI_DBAPPDIR}/${i}"
-					PBI_INSTALLED_BY=$FILEUSER
-					pbi_display_info
-					echo " "
-				else
-					echo "${i}"
-				fi
-			fi
-		done
-
 		# No Database? Ain't gona find much..
 		if [ ! -e "$PBI_INDEXDB" ] ; then return; fi
 
@@ -2963,20 +989,12 @@ do_pbi_info() {
 				PBI_PROGMAINT=`echo $line | awk -F:::: '{print $10}'`
 				PBI_SHORTDESC=`echo $line | awk -F:::: '{print $11}'`
 				PBI_APPARCH=`uname -m`
-				PBI_CONTAINER="NO"
 				pbi_display_info
 			else
 				echo "${PBI_PROGNAME}-${PBI_PROGVERSION}"
 			fi
 
 		done
-		
-	else
-		# Start loading our variables
-        	load_info_from_dir "${PBI_DBAPPDIR}/${PBI_INFONAME}"
-		get_username_from_file "${PBI_DBAPPDIR}/${PBI_INFONAME}"
-		PBI_INSTALLED_BY=$FILEUSER
-		pbi_display_info
 	fi
 }
 
@@ -3017,67 +1035,10 @@ pad_var() {
 	PAD_VAR="`echo \"$_pVar                                                                                    x\" | cut -c 1-$_pNum`"
 }
 
-# Checks if we have a custom script to run prior to port make
-run_pbi_preportmake()
-{
-  	if [ ! -d "${PBI_CONFDIR}" ] ; then return 0 ; fi
-  	if [ ! -d "${PBI_CONFDIR}/${PBI_CONF_SCRIPTSDIR}" ] ; then return 0 ; fi
-  	if [ ! -e "${PBI_CONFDIR}/${PBI_CONF_SCRIPTSDIR}/pre-portmake.sh" ] ; then return 0 ; fi
-
-	export_script_vars
-
-	sh "${PBI_CONFDIR}/${PBI_CONF_SCRIPTSDIR}/pre-portmake.sh"
-	if [ "$?" != "0" ] ; then
-		exit_err "pre-portmake.sh failed!"
-	fi
-}
-
-# Checks if we have a custom script to run prior to port make
-run_pbi_postportmake()
-{
-  	if [ ! -d "${PBI_CONFDIR}" ] ; then return 0 ; fi
-  	if [ ! -d "${PBI_CONFDIR}/${PBI_CONF_SCRIPTSDIR}" ] ; then return 0 ; fi
-  	if [ ! -e "${PBI_CONFDIR}/${PBI_CONF_SCRIPTSDIR}/post-portmake.sh" ] ; then return 0 ; fi
-
-	export_script_vars
-
-	sh "${PBI_CONFDIR}/${PBI_CONF_SCRIPTSDIR}/post-portmake.sh"
-	if [ "$?" != "0" ] ; then
-		echo "Warning: post-portmake.sh returned non-0 status!"
-	fi
-}
-
-# Checks if we have a custom script to run prior to pbi create
-run_pbi_prepkgscript()
-{
-  	if [ ! -d "${PBI_CONFDIR}" ] ; then return 0 ; fi
-  	if [ ! -d "${PBI_CONFDIR}/${PBI_CONF_SCRIPTSDIR}" ] ; then return 0 ; fi
-  	if [ ! -e "${PBI_CONFDIR}/${PBI_CONF_SCRIPTSDIR}/pre-pbicreate.sh" ] ; then return 0 ; fi
-
-	export_script_vars
-
-	sh "${PBI_CONFDIR}/${PBI_CONF_SCRIPTSDIR}/pre-pbicreate.sh"
-	if [ "$?" != "0" ] ; then
-		echo "Warning: post-portmake.sh returned non-0 status!"
-	fi
-}
-
 # Get the full package-name for a target port
 get_pkgname() {
         name="`pkg info -O ${1} | awk '{print $1}'`"
 	PKGNAME="${name}"
-}
-
-# Function which checks the digital signature of a PBI to match it to a particular repo
-pbi_checksig_repomatch() {
-  	if [ `id -u` != "0" ] ; then return ; fi
-
-        # See which repo / key this PBI associates to, if any
-	check_valid_sigs "${1}"
-	if [ "$?" = "0" -a -n "$PBI_VALIDKEYSIG" ] ; then
-		_rMd5="`echo ${PBI_VALIDKEYSIG} | cut -d '.' -f 1`"
-		echo "$_rMd5" | sed "s|${PBI_DBKEYDIR}/||g" > ${1}/pbi_repo
-	fi
 }
 
 # Check if we need to pull down the updated INDEX file
@@ -3176,39 +1137,6 @@ is_num()
 	return $?
 }
 
-# Read the version from a PBI file
-get_ver_from_pbi_file() 
-{
-	VAL="`pbi_add -i $1 | grep Version: | cut -d ':' -f 2 | tr -d ' '`"
-	export VAL
-}
-
-# Read the version from a PBI file
-get_progname_from_pbi_file() 
-{
-	VAL="`pbi_add -i $1 | grep Name: | cut -d ':' -f 2 | tr -d ' '`"
-	export VAL
-}
-
-get_prefix_from_pbi_file()
-{
-	VAL="`pbi_add -i $1 | grep Prefix: | cut -d ':' -f 2 | tr -d ' '`"
-	export VAL
-}
-
-get_mdate_from_pbi_file()
-{
-	VAL="`pbi_add -i $1 | grep Built: | cut -d ' ' -f 2-5 | tr -s ' '`"
-	export VAL
-}
-
-get_arch_from_pbi_file()
-{
-	VAL="`pbi_add -i $1 | grep Arch: | cut -d ' ' -f 2-5 | tr -s ' '`"
-	export VAL
-}
-
-
 # Loads some optional meta-data from the package
 load_pkg_metadata()
 {
@@ -3245,97 +1173,6 @@ load_pkg_metadata()
 	fi
 }
 
-# Check if we need to save a list of GROUPS to create at install
-mk_pbi_groups_file()
-{
-	if [ -z "$PBI_BUILD_GROUPS" ] ; then return ; fi
-
-	for group in $PBI_BUILD_GROUPS
-	do
-		# Check /usr/ports/GIDs for group entry
-		gidLine=`cat /usr/ports/GIDs | grep "^$group:"`
-		if [ -z "$gidLine" ] ; then
-			echo "Warning: No entry for \"$group\" in GIDs file..."
-			continue
-		fi
-		touch ${PBI_STAGEDIRMNT}/${PBI_INS_GROUPSFILE}
-		grep -q "^$group:" ${PBI_STAGEDIRMNT}/${PBI_INS_GROUPSFILE}
-		if [ $? -ne 0 ] ; then
-			echo "Saving gid details for group: $group"
-			echo "$gidLine" >> ${PBI_STAGEDIRMNT}/${PBI_INS_GROUPSFILE}
-		fi
-	done
-}
-
-# Check if we need to save a list of users to create at install
-mk_pbi_users_file()
-{
-	if [ -z "$PBI_BUILD_USERS" ] ; then return ; fi
-
-	for user in $PBI_BUILD_USERS
-	do
-		# Check /usr/ports/UIDs for user entry
-		uidLine=`cat /usr/ports/UIDs | grep "^$user:"`
-		if [ -z "$uidLine" ] ; then
-			echo "Warning: No entry for \"$user\" in UIDs file..."
-			continue
-		fi
-		touch ${PBI_STAGEDIRMNT}/${PBI_INS_USERSFILE}
-		grep -q "^$user:" ${PBI_STAGEDIRMNT}/${PBI_INS_USERSFILE}
-		if [ $? -ne 0 ] ; then
-			echo "Saving uid details for user: $user"
-			echo "$uidLine" >> ${PBI_STAGEDIRMNT}/${PBI_INS_USERSFILE}
-		fi
-	done
-}
-
-# Read the target ports plist, and generate a external_links config based upon it
-mk_auto_ext_linksfile() {
-	# Get ports name
-	get_pkgname "${PBI_MAKEPORT}"
-	_pname="${PKGNAME}"
-
- 	pkg info -l ${_pname} | sed "s|/usr/local/||g" \
-		| grep -v -e "^Information for" -e "^Files:" -e "owns the following" \
-		| tr -s '\t' ' ' \
-		| tr -d ' ' \
-		 > "${PBI_TMPDIR}/.pkg_flist.$$"
-
-	if [ ! -d "${PBI_PROGDIRPATH}" ] ; then
-		mkdir -p "${PBI_PROGDIRPATH}"
-	fi
-	_ef="${PBI_TMPDIR}/${MOD_AUTOEXTLINKFILE}"
-
-	[ -e "$_ef" ] && rm "$_ef"
-
-	while read f
-	do
-		bin="NO"
-		[ -z "${f}" ] && continue
-		[ -e "/usr/local/${f}" ] || continue
-
-		# Strip out anything not in:
-		dirname ${f} | grep -q -e "^bin" -e "^sbin" -e "^etc/rc.d" -e "^man" -e "^info"
-		[ $? -ne 0 ] && continue
-
-		# See if this is executable and set it as binary
-		dirname ${f} | grep -q -e "^bin" -e "^sbin" -e "^etc/rc.d"
-		if [ -x "/usr/local/${f}" -a $? -eq 0 ] ; then
-
-		   # Check this executable, if Linux binary, flag it
-		   file "/usr/local/${f}" | grep -iq "Linux"
-		   if [ $? -ne 0 ] ; then
-	  	      echo "${f}	${f}	binary,nocrash" >> "$_ef"
-		   else
-	  	      echo "${f}	${f}	linux,nocrash" >> "$_ef"
- 		   fi
-		else
-			echo "${f}	${f}	replace" >> "$_ef"
-		fi
-	done < ${PBI_TMPDIR}/.pkg_flist.$$
-	rm "${PBI_TMPDIR}/.pkg_flist.$$"
-}
-
 # Cleanup after caught exit
 exit_trap() {
 	# If a download is running, kill it
@@ -3343,23 +1180,6 @@ exit_trap() {
 	   echo "Killing ${FETCH_PID}"
 	   kill -s INT ${FETCH_PID}
            sleep 2
-	fi
-
-	# If we are running as an auto-build service we need to cleanup
-	if [ "`basename ${0}`" = "pbi_autobuild" ] ; then
-	   for j in `ls ${PBI_TMPDIR}/*.pid 2>/dev/null`
-	   do
-	      bNum=`basename $j | cut -d '.' -f 1 `
-	      if pgrep -qF "${j}" >/dev/null 2>&1; then 
-	         echo "===>Cleaning up processes [$bNum]"
-		 pkill -9 -P "`cat ${j}`"
-		 sleep 10 
-		 pkill -9 -F ${j}
- 		 sleep 10 
-		 # Do the ZFS destroy here, since running zfs destroy concurrently as we cleanup can cause a panic
-		 check_zfs_ab_destroy "$bNum"
-	      fi
-	   done
 	fi
 
 	rm_tmpdir
@@ -3417,13 +1237,10 @@ usage: `basename $0` <subcommand>
 Available sub-commands:
 
   add
-  autobuild
-  create
   delete
   icon
   info
   install
-  makeport
 
 EOF
    exit 1
@@ -3445,7 +1262,6 @@ trap exit_trap 1 2 3 9 15
 # Figure out which mode we are running in
 case `basename ${0}` in
    pbi_add) pbi_add_init "$@" ;;
-   pbi_create) pbi_create_init "$@" ;;
    pbi_delete) pbi_delete_init "$@" ;;
    pbi_icon) pbi_icon_init "$@" ;;
    pbi_info) pbi_info_init "$@" ;;
