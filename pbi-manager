@@ -83,7 +83,7 @@ usage_info_pbi() {
 usage: `basename $0` [options] pbi
 
 Options:
-  -a             -- Show all installed PBIs
+  -a             -- Show all available PBIs
   -v             -- Enable verbose output
 
 EOF
@@ -172,9 +172,7 @@ parse_pbid_cmdline() {
 parse_info_pbi_cmdline() {
         while [ $# -gt 0 ]; do
                 case "$1" in
-                -a)     PBI_INFONAME="--ALL--"
-                        ;;
-		-i) 	PBI_INFOINDEX="YES"	
+		-a) 	PBI_INFOINDEX="YES"	
 			;;
                 -v)     PBI_VERBOSE="YES" 
                         ;;
@@ -233,10 +231,6 @@ mk_required_dirs() {
 
 # Initialize some vars
 init_vars() {
-
-	# Set sys vars
-	REALARCH="`uname -m`"
-	ARCH="$REALARCH"
 
         # Where is pbi-manager installed?
         PROGBASE=/usr/local
@@ -515,66 +509,6 @@ pbi_add_init() {
 	fi
 	do_pbi_pkg_add
 	exit_trap
-}
-
-# Build a list of dependancies for a particular package
-get_pkg_dep_list()
-{
-	for i in `pkg-static rquery -U '%dn-%dv' ${1}`
-	do
-		echo $DEP_LIST | grep -qw "$i"
-		if [ $? -eq 0 ] ; then continue ; fi
-
-		# Save this package name
-		DEP_LIST="$DEP_LIST ${i}"
-
-		# Drill down
-		get_pkg_dep_list "$i"
-	done
-}
-
-# Creating a PBI container from packages
-do_pbi_pkg_build()
-{
-	echo "Installing: $PBI_FILENAME into container"
-	init_tmpdir
-
-	# Make list of packages we are fetching
-	local _fetch="$PBI_ORIGIN $PBI_PKGOTHER"
-	PKG_CACHEDIR="/usr/local/tmp" ; export PKG_CACHEDIR
-	if [ ! -d "${PKG_CACHEDIR}" ] ; then
-		mkdir -p ${PKG_CACHEDIR}
-	fi
-
-	pkg-static update
-	pkg-static fetch -U -y -d $_fetch
-	if [ $? -ne 0 ] ; then
-		exit_err "Failed downloading packages..."
-	fi
-
-	# Now lets figure out which packages we need to extract
-	DEP_LIST=""
-	for top in $_fetch
-	do
-		topName="`pkg-static rquery '%n-%v' ${top}`"
-		DEP_LIST="${DEP_LIST} $topName"
-		get_pkg_dep_list "$top"
-	done
-
-	# Now lets extract these packages into PBI_PROGDIRPATH
-	mkdir -p ${PBI_PROGDIRPATH}/local 2>/dev/null
-	mkdir -p ${PBI_PROGDIRPATH}/linux 2>/dev/null
-	
-	for pkg in $DEP_LIST
-	do
-		echo "Extracting ${pkg}"
-		tar -xvp -s ",/usr/local,${PBI_PROGDIRPATH}/local," -s ",/compat/linux,${PBI_PROGDIRPATH}/linux," -C / -f ${PKG_CACHEDIR}/All/${pkg}.txz 2>/dev/null
-		if [ $? -ne 0 ] ; then
-			exit_err "Failed to extract: ${pkg}"
-		fi
-	done
-
-
 }
 
 # Doing a PBI install via the package system
@@ -993,6 +927,11 @@ do_pbi_info() {
 
 		done
 	else
+		grep -q -i "::::${PBI_INFONAME}::::" $PBI_INDEXDB
+		if [ $? -ne 0 ] ; then 
+			exit_err "No such PBI: $PBI_INFONAME"
+		fi
+
 		load_pbi_info_index "$PBI_INFONAME"
 		pbi_display_info
 	fi
