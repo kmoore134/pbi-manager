@@ -277,6 +277,9 @@ init_vars() {
 	PCBSD_ETCCONF="${SYS_LOCALBASE}/etc/pcbsd.conf"
 	PBI_DEFAULT_ICON="${PROGBASE}/share/pbi-manager/icons/default.png"
 
+	# Which ${PKG_CMD} command
+	PKG_CMD="pkg ${PBI_PKGCFLAG}"
+
 	# Set the PBI DB dir
 	if [ -z "${PBI_DBDIR}" ] ; then
 		PBI_DBDIR="/var/db/pbi"
@@ -397,7 +400,7 @@ make_pbi_index() {
    fi
 
    # Update PKGNG repo
-   pkg-static update 2>/dev/null
+   ${PKG_CMD} update 2>/dev/null
 
    echo "Building PBI-INDEX... This may take a few moments..."
 	
@@ -435,7 +438,7 @@ make_pbi_index() {
 	fi
 
 	# Make sure this PBI exists in the repo
-	pkg-static rquery -U '%n' $PBI_ORIGIN >/dev/null 2>/dev/null
+	${PKG_CMD} rquery -U '%n' $PBI_ORIGIN >/dev/null 2>/dev/null
 	if [ $? -ne 0 ] ; then 
 		echo "Warning: Origin package missing for $PBI_CONFDIR ($PBI_ORIGIN)"
 		continue
@@ -454,7 +457,7 @@ make_pbi_index() {
   		echo $port | grep -q "^/"
   		if [ $? -eq 0 ] ; then port="`echo $port | sed 's|^/||g'`"; fi
 
-		pkg-static rquery -U '%v' ${port} >/dev/null 2>/dev/null
+		${PKG_CMD} rquery -U '%v' ${port} >/dev/null 2>/dev/null
 		if [ $? -ne 0 ] ; then
 			echo "Warning: Required package missing for $PBI_CONFDIR ($port)"
 			skip=1
@@ -524,7 +527,7 @@ load_pbi_info_index()
 	PBI_PLUGINS=`echo $line | awk -F:::: '{print $15}'`
 	PBI_CONFDIR=`echo $line | awk -F:::: '{print $16}'`
 	PBI_APPARCH=`uname -m`
-	PBI_PROGVERSION=`pkg-static ${PKG_FLAG} rquery '%v' $PBI_ORIGIN`
+	PBI_PROGVERSION=`${PKG_CMD} ${PKG_FLAG} rquery '%v' $PBI_ORIGIN`
 	
 	return 0
 }
@@ -558,7 +561,7 @@ do_pbi_pkg_add() {
 	# See if this origin is already installed
 	for i in $_ins
 	do
-		pkg-static ${PKG_FLAG} query '%n' $i >/dev/null 2>/dev/null
+		${PKG_CMD} ${PKG_FLAG} query '%n' $i >/dev/null 2>/dev/null
 		if [ $? -eq 0 ] ; then continue ; fi
 		
 		# Not installed! Lets Add it to the list
@@ -581,7 +584,7 @@ do_pbi_pkg_add() {
   	fi
 
 	# Now go forth and install these packages
-	pkg ${PKG_FLAG} install -yUf ${_toIns}
+	${PKG_CMD} ${PKG_FLAG} install -yUf ${_toIns}
 	if [ $? -ne 0 ] ; then
 		exit_err "Failed installing: $PBI_FILENAME"
 	fi
@@ -681,7 +684,7 @@ pbi_delete_init() {
 do_pbi_delete() {
 
 	# First confirm this package is installed
-	pkg-static ${PKG_FLAG} query '%n' $PBI_ORIGIN 2>/dev/null >/dev/null
+	${PKG_CMD} ${PKG_FLAG} query '%n' $PBI_ORIGIN 2>/dev/null >/dev/null
 	if [ $? -ne 0 ] ; then
 		exit_err "$PBI_DELETENAME is not installed!"
 	fi
@@ -693,19 +696,19 @@ do_pbi_delete() {
 		pOpts="-y"
 	fi
 
-	pkg-static ${PKG_FLAG} delete $pOpts -R $PBI_ORIGIN
+	${PKG_CMD} ${PKG_FLAG} delete $pOpts -R $PBI_ORIGIN
 
 	# Check if we can remove any plugins
 	for i in $PBI_PLUGINS
 	do
-		pkg-static ${PKG_FLAG} delete ${pOpts} $i
+		${PKG_CMD} ${PKG_FLAG} delete ${pOpts} $i
 		if [ $? -eq 0 ] ; then
 			echo "WARNING: Did not remove optional plugin ${i}"
 		fi
 	done
 	
 	# Do any package autoremove cleanup
-	pkg-static ${PKG_FLAG} autoremove -y
+	${PKG_CMD} ${PKG_FLAG} autoremove -y
 		
 	exit_trap
 }
@@ -722,7 +725,7 @@ check_preremove_script() {
 
 is_pbi_installed() {
 	# check for pkgng version
-	pkg-static ${PKG_FLAG} query '%n' $1 >/dev/null 2>/dev/null
+	${PKG_CMD} ${PKG_FLAG} query '%n' $1 >/dev/null 2>/dev/null
 	if [ $? -eq 0 ] ; then return 0; fi
 	return 1
 }
@@ -937,7 +940,7 @@ do_pbi_info() {
 		# Next list package PBIs
 		echo "PBIs installed into system"
 		echo "-------------------------------"
-		for pkgori in `pkg ${PKG_FLAG} query '%o'`
+		for pkgori in `${PKG_CMD} ${PKG_FLAG} query '%o'`
 		do
 
 			line=`grep "^PBI=${pkgori}::::" $PBI_INDEXDB`
@@ -945,7 +948,7 @@ do_pbi_info() {
 
 			PBI_PROGNAME=`echo $line | awk -F:::: '{print $2}'`
 			PBI_PROGNAME=`echo ${PBI_PROGNAME} | tr -d ' ' | tr '[A-Z]' '[a-z]'`
-			PBI_PROGVERSION=`pkg-static ${PKG_FLAG} query '%v' $pkgori`
+			PBI_PROGVERSION=`${PKG_CMD} ${PKG_FLAG} query '%v' $pkgori`
 			if [ "$PBI_VERBOSE" = "YES" ] ; then
 				PBI_PKGOTHER=`echo $line | awk -F:::: '{print $3}'`
 				PBI_PROGAUTHOR=`echo $line | awk -F:::: '{print $4}'`
@@ -985,7 +988,7 @@ do_index_listing()
 	echo "----------------------------------------------------------------"
 
 	# Build list of all packages / origins
-	pkg-static ${PKG_FLAG} rquery '%o %n-%v' >${PBI_TMPDIR}/.pList
+	${PKG_CMD} ${PKG_FLAG} rquery '%o %n-%v' >${PBI_TMPDIR}/.pList
 
 	while read line
 	do
@@ -1012,7 +1015,7 @@ pad_var() {
 
 # Get the full package-name for a target port
 get_pkgname() {
-        name="`pkg ${PKG_FLAG} info -O ${1} | awk '{print $1}'`"
+        name="`${PKG_CMD} ${PKG_FLAG} info -O ${1} | awk '{print $1}'`"
 	PKGNAME="${name}"
 }
 
@@ -1126,22 +1129,22 @@ load_pkg_metadata()
 	fi
 
 	if [ -z "$PBI_LICENSE" ] ; then
-		PBI_LICENSE="`pkg rquery '%L' ${PBI_ORIGIN} | head -n 1`"
+		PBI_LICENSE="`${PKG_CMD} rquery '%L' ${PBI_ORIGIN} | head -n 1`"
 	fi
 	if [ -z "$PBI_SHORTDESC" ] ; then
-		PBI_SHORTDESC="`pkg rquery '%c' ${PBI_ORIGIN} | awk 1 ORS=' ' | sed 's|  |<br>|g' | sed 's|*|-|g'`"
+		PBI_SHORTDESC="`${PKG_CMD} rquery '%c' ${PBI_ORIGIN} | awk 1 ORS=' ' | sed 's|  |<br>|g' | sed 's|*|-|g'`"
 	fi
 	if [ -z "$PBI_MAINTAINER" ] ; then
-		PBI_MAINTAINER="`pkg rquery '%m' ${PBI_ORIGIN}`"
+		PBI_MAINTAINER="`${PKG_CMD} rquery '%m' ${PBI_ORIGIN}`"
 	fi
 	if [ -z "$PBI_DESC" ] ; then
-		PBI_DESC="`pkg rquery '%e' ${PBI_ORIGIN} | awk 1 ORS=' ' | sed 's|  |<br>|g' | sed 's|*|-|g'`"
+		PBI_DESC="`${PKG_CMD} rquery '%e' ${PBI_ORIGIN} | awk 1 ORS=' ' | sed 's|  |<br>|g' | sed 's|*|-|g'`"
 	fi
 	if [ -z "$PBI_PROGWEB" ] ; then
-		PBI_PROGWEB="`pkg rquery '%w' ${PBI_ORIGIN}`"
+		PBI_PROGWEB="`${PKG_CMD} rquery '%w' ${PBI_ORIGIN}`"
 	fi
 	if [ -z "$PBI_CATEGORY" ] ; then
-		PBI_CATEGORY="`pkg rquery '%C' ${PBI_ORIGIN} | head -n 1`"
+		PBI_CATEGORY="`${PKG_CMD} rquery '%C' ${PBI_ORIGIN} | head -n 1`"
 	fi
 	if [ -z "$PBI_PROGTYPE" ] ; then
 		PBI_PROGTYPE="Text"
