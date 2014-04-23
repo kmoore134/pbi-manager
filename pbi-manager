@@ -50,7 +50,7 @@ EOF
         exit_trap
 }
 
-usage_makeindex() {
+usage_makeindex_pbi() {
         cat <<EOF
 usage: `basename $0` [openssl key]
 
@@ -267,9 +267,6 @@ init_vars() {
 
 	PBI_LOG_LINES="500"
 
-	# What dbus dirs do we parse for setting up services
-	DBUS_SEARCH_DIRS="share/dbus-1 kde4/share/dbus-1 gnome/share/dbus-1"
-
 	# Don't modify unless you know what your doing!
 	MOD_PREINS="pre-install.sh"
 	MOD_POSTINS="post-install.sh"
@@ -353,7 +350,7 @@ require_root() {
 pbi_makeindex_init() {
 	# Make sure we have been given a signing key
 	if [ -z "$1" -o ! -e "$1" ] ; then
-		usage_makeindex
+		usage_makeindex_pbi
 	fi
 
 	# Create a new repoindex file
@@ -473,6 +470,7 @@ load_pbi_info_index()
 {
 	local tPBI="$1"
 	d="::::"
+
 	# No Database? Ain't gona find much..
 	if [ ! -e "$PBI_INDEXDB" ] ; then return 1; fi
 	
@@ -660,6 +658,7 @@ pbi_display_info() {
 	if [ -d "${PBI_DBINDEXDIR}/${PBI_CONFDIR}/xdg-mime" ] ; then
 		echo "MimeRegistration: YES"
 	fi
+	echo ""
 }
 
 # Check if we have a postinstall script we need to use
@@ -724,10 +723,7 @@ do_pbi_delete() {
 		pOpts="-y"
 	fi
 
-	pkg-static delete $pOpts $PBI_ORIGIN
-	if [ $? -eq 0 ] ; then
-		echo "WARNING: Did not completely remove ${PBI_ORIGIN}, use -f to force."
-	fi
+	pkg-static delete $pOpts -R $PBI_ORIGIN
 
 	# Check if we can remove any plugins
 	for i in $PBI_PLUGINS
@@ -955,6 +951,9 @@ pbi_info_init() {
 # Display information on the PBI / PBIs
 do_pbi_info() {
 
+	# No Database? Ain't gona find much..
+	if [ ! -e "$PBI_INDEXDB" ] ; then return; fi
+
 	# If we are listing available PBIs via the index file
 	if [ "$PBI_INFOINDEX" = "YES" ] ; then
 		
@@ -965,14 +964,12 @@ do_pbi_info() {
 	fi
 
 	if [ "$PBI_INFONAME" = "--ALL--" ] ; then
-		# No Database? Ain't gona find much..
-		if [ ! -e "$PBI_INDEXDB" ] ; then return; fi
-
 		# Next list package PBIs
 		echo "PBIs installed into system"
 		echo "-------------------------------"
 		for pkgori in `pkg query '%o'`
 		do
+
 			line=`grep "^PBI=${pkgori}::::" $PBI_INDEXDB`
 			if [ -z "$line" ] ; then continue ; fi
 
@@ -995,6 +992,9 @@ do_pbi_info() {
 			fi
 
 		done
+	else
+		load_pbi_info_index "$PBI_INFONAME"
+		pbi_display_info
 	fi
 }
 
@@ -1219,6 +1219,13 @@ app_init()
   if [ "$cmd" = "install" ] ; then cmd="add" ; fi
 
   if [ "$cmd" = "help" ] ; then
+	case $2 in
+	 add|install) usage_add_pbi ;;
+	      delete) usage_delete_pbi ;;
+		icon) usage_icon_pbi ;;
+		info) usage_info_pbi ;;
+		*) exit_err "Unknown command" ;;
+	esac
   fi
 
   which -s "pbi_${cmd}" 
@@ -1238,6 +1245,7 @@ Available sub-commands:
 
   add
   delete
+  help
   icon
   info
   install

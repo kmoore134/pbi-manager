@@ -15,23 +15,18 @@ cd ${DIR}
 
 # Install the app
 mkdir ${LB}/sbin >/dev/null 2>/dev/null
-cp pbi-manager ${LB}/sbin/pbi_create
-ln -f ${LB}/sbin/pbi_create ${LB}/sbin/pbi_add
-ln -f ${LB}/sbin/pbi_create ${LB}/sbin/pbi_browser
-ln -f ${LB}/sbin/pbi_create ${LB}/sbin/pbi_autobuild
-ln -f ${LB}/sbin/pbi_create ${LB}/sbin/pbi_delete
-ln -f ${LB}/sbin/pbi_create ${LB}/sbin/pbi_icon
-ln -f ${LB}/sbin/pbi_create ${LB}/sbin/pbi_info
-ln -f ${LB}/sbin/pbi_create ${LB}/sbin/pbi_makeindex
-ln -f ${LB}/sbin/pbi_create ${LB}/sbin/pbi_makeport
-ln -f ${LB}/sbin/pbi_create ${LB}/sbin/pbid
-ln -f ${LB}/sbin/pbi_create ${LB}/sbin/pbi-crashhandler
-ln -f ${LB}/sbin/pbi_create ${LB}/sbin/app
-ln -f ${LB}/sbin/pbi_create ${LB}/sbin/pbi
+cp pbi-manager ${LB}/sbin/pbi_info
+ln -f ${LB}/sbin/pbi_info ${LB}/sbin/pbi_add
+ln -f ${LB}/sbin/pbi_info ${LB}/sbin/pbi_delete
+ln -f ${LB}/sbin/pbi_info ${LB}/sbin/pbi_icon
+ln -f ${LB}/sbin/pbi_info ${LB}/sbin/pbi_makeindex
+ln -f ${LB}/sbin/pbi_info ${LB}/sbin/pbid
+ln -f ${LB}/sbin/pbi_info ${LB}/sbin/app
+ln -f ${LB}/sbin/pbi_info ${LB}/sbin/pbi
 
 # Set the new PREFIX / LOCALBASE
 if [ "$LB" != /usr/local ] ; then
-  sed -i '' "s|PROGBASE=/usr/local|PROGBASE=$LB|g" ${LB}/sbin/pbi_create
+  sed -i '' "s|PROGBASE=/usr/local|PROGBASE=$LB|g" ${LB}/sbin/pbi_info
 fi
 
 # Install manpages
@@ -76,73 +71,3 @@ ${LB}/sbin/pbi_add >/dev/null 2>/dev/null
 # Copy pbid / pbi.conf
 cp ${DIR}/rc.d/pbid ${LB}/etc/rc.d/pbid
 cp ${DIR}/etc/pbi.conf ${LB}/etc/pbi.conf
-
-# Create the wrapper binary
-cd ${DIR}/wrapper
-if [ `uname -m` = "amd64" ] ; then
-  # Build 32bit wrapper
-  echo "Building i386 wrapper..."
-  rm pbiwrapper >/dev/null 2>/dev/null
-  make clean
-  make DEFINES="-mtune=i386 -march=i386 -m32"
-  make install
-  chown root:wheel pbiwrapper 
-  chmod 644 pbiwrapper
-  mv pbiwrapper ${LB}/share/pbi-manager/.pbiwrapper-i386
-  if [ "${LB}" = "/usr/local" ] ; then
-     install -o root -g wheel -m 755 ${LB}/share/pbi-manager/.pbiwrapper-i386 /usr/pbi/.pbiwrapper-i386
-  fi
-else
-  touch ${LB}/share/pbi-manager/.pbiwrapper-amd64
-fi
-
-# Build system arch wrapper
-echo "Building `uname -m` wrapper..."
-DEFINES=""
-export DEFINES
-rm pbiwrapper >/dev/null 2>/dev/null
-make clean
-make DEFINES=""
-make install DEFINES=""
-chown root:wheel pbiwrapper 
-chmod 644 pbiwrapper
-mv pbiwrapper ${LB}/share/pbi-manager/.pbiwrapper-`uname -m`
-if [ "${LB}" = "/usr/local" ] ; then
-   install -o root -g wheel -m 755 ${LB}/share/pbi-manager/.pbiwrapper-`uname -m` /usr/pbi/.pbiwrapper-`uname -m`
-fi
-
-# Install the pbime wrapper
-cd ${DIR}/pbime && make
-install -o root -g wheel -m 755 pbime ${LB}/share/pbi-manager/.pbime
-install -o root -g wheel -m 4751 pbild ${LB}/share/pbi-manager/.pbild
-install -o root -g wheel -m 755 pbirun ${LB}/share/pbi-manager/.pbirun
-install -o root -g wheel -m 755 pbirun32 ${LB}/share/pbi-manager/.pbirun32
-install -o root -g wheel -m 755 pbiinit ${LB}/share/pbi-manager/.pbiinit
-install -o root -g wheel -m 755 ldconfig ${LB}/share/pbi-manager/.ldconfig
-install -o root -g wheel -m 755 pbisyscmd ${LB}/share/pbi-manager/.pbisyscmd
-install -o root -g wheel -m 755 openwith ${LB}/share/pbi-manager/openwith
-if [ "${LB}" = "/usr/local" ] ; then
-  install -o root -g wheel -m 755 pbime /usr/pbi/.pbime
-  install -o root -g wheel -m 4751 pbild /usr/pbi/.pbild
-  install -o root -g wheel -m 755 pbirun /usr/pbi/.pbirun
-  install -o root -g wheel -m 755 pbirun32 /usr/pbi/.pbirun32
-  install -o root -g wheel -m 755 pbiinit /usr/pbi/.pbiinit
-  install -o root -g wheel -m 755 ldconfig /usr/pbi/.ldconfig
-  install -o root -g wheel -m 755 pbisyscmd /usr/pbi/.pbisyscmd
-  install -o root -g wheel -m 755 openwith /usr/bin/openwith
-fi
-
-# Install the pbi_preload wrapper library
-cd ${DIR}/pbi_preload && make 
-install -o root -g wheel -m 755 pbi_preload.so ${LB}/share/pbi-manager/.pbi_preload.so
-install -o root -g wheel -m 755 pbi_preload32.so ${LB}/share/pbi-manager/.pbi_preload32.so
-if [ "${LB}" = "/usr/local" ] ; then
-  install -o root -g wheel -m 755 pbi_preload.so /usr/pbi/.pbi_preload.so
-  install -o root -g wheel -m 755 pbi_preload32.so /usr/pbi/.pbi_preload32.so
-fi
-
-# Install the MANPATH conf
-if [ ! -d "${LB}/etc/man.d" ] ; then
-   mkdir -p "${LB}/etc/man.d"
-fi
-cp ${DIR}/man.d/pbi.conf ${LB}/etc/man.d/pbi.conf
