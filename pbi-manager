@@ -507,9 +507,13 @@ load_pbi_info_index()
 	# No Database? Ain't gona find much..
 	if [ ! -e "$PBI_INDEXDB" ] ; then return 1; fi
 	
-	# Look for an App= line
+	# Search by name
 	local line=`cat ${PBI_INDEXDB} | grep "^PBI=" | grep -i "${d}${tPBI}${d}" | head -n 1`
-	if [ -z "$line" ] ; then return 1 ; fi
+	if [ -z "$line" ] ; then
+		# Not by name, search by ORIGIN
+		line=`cat ${PBI_INDEXDB} | grep "^PBI=${tPBI}${d}" | head -n 1`
+		if [ -z "$line" ] ; then return 1; fi
+	fi
 
 	# Now get values from this list
 	PBI_PROGNAME=`echo $line | awk -F:::: '{print $2}'`
