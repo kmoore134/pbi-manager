@@ -1211,11 +1211,13 @@ do_ng_migration()
 	require_root
 
 	# Remove user *.desktop files
+	users=""
 	for h in `ls /usr/home`
 	do
 		if [ ! -d "/usr/home/$h/Desktop" ] ; then continue; fi
 		rm /usr/home/${h}/Desktop/PBI-*.desktop 2>/dev/null
 		rm /usr/home/${h}/.local/share/applications/PBI-*.desktop 2>/dev/null
+		users="$users $h"
 	done
 
 	for i in `ls $db`
@@ -1234,9 +1236,12 @@ do_ng_migration()
 			echo "Adding PBING: $oName"
 			pbi add $oName
 			pbi icon add-menu $oName
+			for u in $users
+			do
+				su $u -c "pbi icon add-desktop $oName" 2>/dev/null
+			done
 		fi
 	done
-
 }
 
 app_init()
