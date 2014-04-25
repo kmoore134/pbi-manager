@@ -1202,7 +1202,22 @@ do_ng_migration()
 {
 	local db="/var/db/pbi/installed"
 
+	# No Database? Ain't gona find much..
+	if [ ! -e "$PBI_INDEXDB" ] ; then
+		echo "No PBING index... Reboot or run this after INDEX is downloaded"
+		exit 1
+	fi
+
 	require_root
+
+	# Remove user *.desktop files
+	for h in `ls /usr/home`
+	do
+		if [ ! -d "/usr/home/$h/Desktop" ] ; then continue; fi
+		rm /usr/home/${h}/Desktop/PBI-*.desktop 2>/dev/null
+		rm /usr/home/${h}/.local/share/applications/PBI-*.desktop 2>/dev/null
+	done
+
 	for i in `ls $db`
 	do
 		# Get the PBI name
@@ -1218,6 +1233,7 @@ do_ng_migration()
 
 			echo "Adding PBING: $oName"
 			pbi add $oName
+			pbi icon add-menu $oName
 		fi
 	done
 
