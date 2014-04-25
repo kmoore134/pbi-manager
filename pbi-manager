@@ -1193,6 +1193,28 @@ load_pbi_etcconf() {
 
 }
 
+do_ng_migration()
+{
+	local db="/var/db/pbi/installed"
+
+	require_root
+	for i in `ls $db`
+	do
+		# Get the PBI name
+		oName=`cat $db/${i}/pbi_name 2>/dev/null`
+		oPath=`cat $db/${i}/pbi_defaultpath 2>/dev/null`
+		if [ -n "$oPath" -a -n "$oName" ] ; then
+			echo "Removing old PBI: $name"
+			rm -rf /usr/pbi/$oPath
+			rm -rf $db/$i
+
+			echo "Adding PBING: $name"
+			pbi add $name
+		fi
+	done
+
+}
+
 app_init()
 {
   cmd=$1
@@ -1208,6 +1230,12 @@ app_init()
 		info) usage_info_pbi ;;
 		*) exit_err "Unknown command" ;;
 	esac
+  fi
+
+  # User requested to run a migration from old PBIs to PBING
+  if [ "$cmd" = "migrate" ] ; then
+     do_ng_migration
+     exit 0
   fi
 
   which -s "pbi_${cmd}" 
