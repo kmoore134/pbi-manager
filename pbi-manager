@@ -593,6 +593,11 @@ do_pbi_pkg_add() {
 		exit_err "Failed installing: $PBI_FILENAME"
 	fi
 
+	# Check if we have a post-install.sh to run
+	if [ -e "$PBI_DBINDEXDIR/$PBI_CONFDIR/scripts/post-install.sh" ] ; then
+		sh $PBI_DBINDEXDIR/$PBI_CONFDIR/scripts/post-install.sh
+	fi
+
 	exit 0
 }
 
