@@ -1204,15 +1204,15 @@ do_ng_migration()
 		oName=`cat $db/${i}/pbi_name 2>/dev/null`
 		oPath=`cat $db/${i}/pbi_defaultpath 2>/dev/null`
 		if [ -n "$oPath" -a -n "$oName" ] ; then
-			echo "Removing old PBI: $name"
+			echo "Removing old PBI: $oName"
 			echo "$oPath" | grep -q '/usr/pbi/'
 			if [ $? -eq 0 ] ; then
 				rm -rf $oPath
 			fi
 			rm -rf $db/$i
 
-			echo "Adding PBING: $name"
-			pbi add $name
+			echo "Adding PBING: $oName"
+			pbi add $oName
 		fi
 	done
 
