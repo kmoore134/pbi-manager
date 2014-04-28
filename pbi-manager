@@ -154,26 +154,6 @@ parse_icon_pbi_cmdline() {
 	fi
 }
 
-# Parse the command line for pbid
-parse_pbid_cmdline() {
-        while [ $# -gt 0 ]; do
-                case "$1" in
-                -v)     PBI_VERBOSE="YES" 
-                        ;;
-         --refresh)     # Schedule us to refresh the index
-			echo "Your index files will begin refreshing in a moment..."
-			echo "Details available in /var/log/pbid.log"
-			rm ${PBI_DBINDEXDIR}.time >/dev/null 2>/dev/null
-			if [ -e "${PROGBASE}/etc/rc.d/pbid" ]; then
-			   ${PROGBASE}/etc/rc.d/pbid restart >/dev/null 2>/dev/null
-			fi
-			exit 0
-                        ;;
-		esac
-		shift
-	done
-}
-
 # Parse the command line for info
 parse_info_pbi_cmdline() {
         while [ $# -gt 0 ]; do
@@ -289,14 +269,6 @@ init_vars() {
 
 	# Load the etc/pbi.conf file
 	load_pbi_etcconf
-
-	# Overrides from pbi.conf
-	if [ -z "$PBIDSLEEP" ] ; then
-		PBIDSLEEP="300"	# Amount of time to sleep before waking up pbid
-	fi
-	if [ -z "$PBI_INDEXREFRESH" ] ; then
-		PBI_INDEXREFRESH="24" # Hours to wait until we re-download PBI indexes
-	fi
 
 	PBI_LOG_LINES="500"
 
@@ -538,6 +510,8 @@ load_pbi_info_index()
 
 # Start the pbi_add process
 pbi_add_init() {
+        require_root
+	check_update_index
 	init_tmpdir
 	parse_add_pbi_cmdline "$@"
 
@@ -684,7 +658,9 @@ check_file_sig() {
 }
 
 pbi_delete_init() {
+        require_root
 	init_tmpdir
+	check_update_index
 	parse_delete_pbi_cmdline "$@"
 	do_pbi_delete
 }
@@ -868,62 +844,6 @@ check_xdg_icon() {
 	sed -i '' "s|^Icon=$oPath|Icon=${PBI_DBINDEXDIR}/$2/icon.png|g" ${1}
 }
 
-pbid_init() {
-	require_root
-
-	parse_pbid_cmdline "$@"
-
-	do_pbid
-}
-
-# Start the PBID daemon
-do_pbid() {
-
-	# Start by sourcing /etc/profile
-	# This grabs any HTTP_ / FTP_ PROXY variables
-	. /etc/profile
-
-	# Allow user supplied logfile
-        if [ -z "${PBID_LOGFILE}" ] ; then
-	  _pbid_log="/var/log/pbid.log"
-	else
-          _pbid_log="${PBID_LOGFILE}"
-        fi
-
-	# Set verbosity 
-	_redir="&1"
-	if [ "${PBI_VERBOSE}" != "YES" ] ; then _redir="/dev/null" ; fi
-	echo "Started pbid: `date`" > ${_pbid_log}
-
-	while
-	i=1
-	do
-		# Do regular sleeps
-		qslp=0
-
-		# Check if we have any out of date index files to update
-		check_update_index
-		if [ $? -eq 1 ] ; then qslp=1; fi
-
-		# Check if we should rotate the logfile
-		_pbidLines=`wc -l ${_pbid_log} | awk '{ print $1 }'`
-		if [ $(is_num "$_pbidLines") ] ; then
-			if [ $_pbidLines -gt $PBI_LOG_LINES ] ; then
-				echo "Logfile turnover: `date`" >${_pbid_log}
-			fi
-		fi
-		
-
-		# Done with our check, lets go back to sleep now
-		if [ $qslp -eq 1 ] ; then
-			sleep 10
-		else
-			sleep ${PBIDSLEEP}
-		fi
-	done
-
-}
-
 pbi_info_init() {
 	parse_info_pbi_cmdline "$@"
 	
@@ -1030,36 +950,27 @@ get_pkgname() {
 
 # Check if we need to pull down the updated INDEX file
 check_update_index() {
+	local _pRepoName="`cat ${PBI_SHARE_DIR}/pkgng-repo | cut -d ':' -f 1`"
 
-	init_tmpdir
-	local _pbiIndexTime="${PBI_DBINDEXDIR}.time"
-		
-	# Check if its been greater than $PBI_INDEXREFRESH hours since the last update
-	if [ -e "${_pbiIndexTime}" ] ; then
-		_curTime=`date +%s`
-		_oTime=`cat ${_pbiIndexTime}`
-		_trigTime=`expr ${PBI_INDEXREFRESH} \* 60 \* 60`
-		expr $_curTime - $_oTime >/dev/null 2>/dev/null
-		if [ "$?" = "0" ] ; then
-			_passed=`expr $_curTime - $_oTime`
-			if [ "$_passed" -lt "$_trigTime" ] ; then
-				return 0;
-			fi
-		fi
-		
+	# See if pkgng needs to update
+	pkg update
+
+	# See if the SQL database stamp changed
+	if [ -e "/var/db/pkg/repo-${_pRepoName}.sqlite" -a -e "${PBI_DBINDEXDIR}.stamp" ] ; then
+		local oSum=`cat ${PBI_DBINDEXDIR}.stamp`
+		local nSum=`sha256 -q /var/db/pkg/repo-${_pRepoName}.sqlite`
+		if [ "$oSum" = "$nSum" ]; then return; fi
 	fi
-	
-	cd $PBI_TMPDIR
 
 	# Start refreshing indexes
-	if [ "${PBI_VERBOSE}" = "YES" ] ; then
-		echo "Updating PBI indexes"
-		echo "Updating PBI indexes: `date`" >> ${_pbid_log}
-	fi
+	echo "Updating PBI index..."
 	
+	init_tmpdir
+	cd $PBI_TMPDIR
+
 	# Check the specified repo in repo/pkgng-repo file
 	foundIndex=0
-	local _pRepo="`cat ${PBI_SHARE_DIR}/pkgng-repo`"
+	local _pRepo="`cat ${PBI_SHARE_DIR}/pkgng-repo | cut -d ':' -f 2`"
 	rm ${PBI_INDEXFILE} 2>/dev/null
 	rm ${PBI_INDEXFILE}.sha1 2>/dev/null
 
@@ -1068,28 +979,26 @@ check_update_index() {
 
 	# Fetch the index files if they exist
 	fetch -o "${PBI_INDEXFILE}" "${url}/${PBI_INDEXFILE}" >/dev/null 2>/dev/null
-	if [ "$?" != "0" ] ; then return 1; fi
+	if [ "$?" != "0" ] ; then echo "Failed fetching index" ; return 1; fi
 	fetch -o "${PBI_INDEXFILE}.sha1" "${url}/${PBI_INDEXFILE}.sha1" >/dev/null 2>/dev/null
-	if [ "$?" != "0" ] ; then return 1; fi
+	if [ "$?" != "0" ] ; then echo "Failed fetching index checksum" ; return 1; fi
 
 	# Got an index file, lets check signatures
 	check_file_sig "${PBI_INDEXFILE}"
 	if [ $? -ne 0 ] ; then 
-		if [ "${PBI_VERBOSE}" = "YES" ] ; then
-			echo "Failed verifying signature on PBI Index"
-		fi
-		echo "Failed verifying signature on PBI Index: `date`" >> ${_pbid_log}
-		continue
+		echo "Failed verifying signature on PBI Index"
+		return 1
 	fi
-	echo "Updating PBI index: `date`" >> ${_pbid_log}
 
 	# Extract the INDEXFILE contents now
 	if [ -d "${PBI_DBINDEXDIR}.new" ] ; then
 		rm -rf ${PBI_DBINDEXDIR}.new
 	fi
+
 	mkdir ${PBI_DBINDEXDIR}.new
 	tar xvf ${PBI_INDEXFILE} --no-same-owner -C "${PBI_DBINDEXDIR}.new" >/dev/null 2>/dev/null
 	if [ $? -ne 0 ] ; then
+		echo "Failed extracting PBI Index"
 		return 1
 	fi
 
@@ -1101,19 +1010,11 @@ check_update_index() {
 	mv ${PBI_DBINDEXDIR}.new ${PBI_DBINDEXDIR}
 		
 	# Cleanup
-	foundIndex=1
 	rm ${PBI_INDEXFILE}
 	rm ${PBI_INDEXFILE}.sha1
 	
-	echo "Finished updating index: `date`" >> ${_pbid_log}
-	if [ "${PBI_VERBOSE}" = "YES" ] ; then
-		echo "Finished updating index"
-	fi
-
-	if [ $foundIndex -eq 0 ] ; then return 1; fi
-
-	# Save the time that we are done
-	date +%s > ${_pbiIndexTime}
+	# Save the checksum of the new index
+	sha256 -q /var/db/pkg/repo-${_pRepoName}.sqlite >${PBI_DBINDEXDIR}.stamp
 
 	return 0
 }
@@ -1183,18 +1084,6 @@ load_pbi_etcconf() {
 	PBI_PUBKEYS="`ls ${PBI_DBKEYDIR}/*.ssl 2>/dev/null`"
 
 	[ -e "${PBI_ETCCONF}" ] || return 0
-
-	# See if we have a custom index refresh rate
-	_ckPBIIR="`sed -n 's/^PBI_INDEXREFRESH: //gp' ${PBI_ETCCONF}`"
-	if [ -n "${_ckPBIIR}" -a $(is_num "$_ckPBIIR") ] ; then 
-		PBI_INDEXREFRESH="${_ckPBIIR}"
-	fi
-
-	# See if we have a custom pbid refresh time
-	_ckPBID="`cat ${PBI_ETCCONF} | grep '^PBID_REFRESH: ' | sed 's|PBID_REFRESH: ||g'`"
-	if [ -n "${_ckPBID}" -a $(is_num "$_ckPBID") ] ; then 
-		PBIDSLEEP="${_ckPBID}"
-	fi
 
 }
 
@@ -1315,7 +1204,6 @@ case `basename ${0}` in
    pbi_makeindex) pbi_makeindex_init "$@" ;;
    app) app_init "$@" ;;
    pbi) app_init "$@" ;;
-   pbid) pbid_init "$@" ;;
    *) echo "Error: Called with invalid basename!" ; exit_trap ;;
 esac
 

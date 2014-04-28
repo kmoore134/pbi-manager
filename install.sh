@@ -20,7 +20,6 @@ ln -f ${LB}/sbin/pbi_info ${LB}/sbin/pbi_add
 ln -f ${LB}/sbin/pbi_info ${LB}/sbin/pbi_delete
 ln -f ${LB}/sbin/pbi_info ${LB}/sbin/pbi_icon
 ln -f ${LB}/sbin/pbi_info ${LB}/sbin/pbi_makeindex
-ln -f ${LB}/sbin/pbi_info ${LB}/sbin/pbid
 ln -f ${LB}/sbin/pbi_info ${LB}/sbin/app
 ln -f ${LB}/sbin/pbi_info ${LB}/sbin/pbi
 
@@ -44,14 +43,6 @@ do
   gzip -c man5/${i} > ${LB}/man/man5/${i}.gz
 done
 
-
-mkdir -p ${LB}/man/man8 >/dev/null 2>/dev/null
-for i in `ls man8/`
-do
-  rm ${LB}/man/man8/${i}.gz >/dev/null 2>/dev/null
-  gzip -c man8/${i} > ${LB}/man/man8/${i}.gz
-done
-
 if [ -d "${LB}/share/pbi-manager" ] ; then rm -rf "${LB}/share/pbi-manager" ; fi
 
 mkdir -p ${LB}/share/pbi-manager/ >/dev/null 2>/dev/null
@@ -68,6 +59,4 @@ cp ${DIR}/repo/pkgng-repo ${LB}/share/pbi-manager/pkgng-repo
 # Tickle the info command to setup default dirs
 ${LB}/sbin/pbi_add >/dev/null 2>/dev/null
 
-# Copy pbid / pbi.conf
-cp ${DIR}/rc.d/pbid ${LB}/etc/rc.d/pbid
 cp ${DIR}/etc/pbi.conf ${LB}/etc/pbi.conf
