@@ -362,6 +362,13 @@ pbi_makeindex_init() {
 	make_pbi_index "$1"
 }
 
+# Update the PBI index file
+pbi_updateindex_init() {
+	require_root
+	check_update_index "force"
+	exit $?
+}
+
 # Create a PBI-INDEX file and save it, along with scripts to a .txz file
 make_pbi_index() {
 
@@ -959,7 +966,7 @@ check_update_index() {
 	if [ -e "/var/db/pkg/repo-${_pRepoName}.sqlite" -a -e "${PBI_DBINDEXDIR}.stamp" ] ; then
 		local oSum=`cat ${PBI_DBINDEXDIR}.stamp`
 		local nSum=`sha256 -q /var/db/pkg/repo-${_pRepoName}.sqlite`
-		if [ "$oSum" = "$nSum" ]; then return; fi
+		if [ "$oSum" = "$nSum" -a "$1" != "force" ]; then return; fi
 	fi
 
 	# Start refreshing indexes
@@ -1146,6 +1153,7 @@ app_init()
 	      delete) usage_delete_pbi ;;
 		icon) usage_icon_pbi ;;
 		info) usage_info_pbi ;;
+		makeindex) usage_makeindex_pbi ;;
 		*) exit_err "Unknown command" ;;
 	esac
   fi
@@ -1201,6 +1209,7 @@ case `basename ${0}` in
    pbi_delete) pbi_delete_init "$@" ;;
    pbi_icon) pbi_icon_init "$@" ;;
    pbi_info) pbi_info_init "$@" ;;
+   pbi_updateindex) pbi_updateindex_init "$@" ;;
    pbi_makeindex) pbi_makeindex_init "$@" ;;
    app) app_init "$@" ;;
    pbi) app_init "$@" ;;

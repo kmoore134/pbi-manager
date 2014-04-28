@@ -20,6 +20,7 @@ ln -f ${LB}/sbin/pbi_info ${LB}/sbin/pbi_add
 ln -f ${LB}/sbin/pbi_info ${LB}/sbin/pbi_delete
 ln -f ${LB}/sbin/pbi_info ${LB}/sbin/pbi_icon
 ln -f ${LB}/sbin/pbi_info ${LB}/sbin/pbi_makeindex
+ln -f ${LB}/sbin/pbi_info ${LB}/sbin/pbi_updateindex
 ln -f ${LB}/sbin/pbi_info ${LB}/sbin/app
 ln -f ${LB}/sbin/pbi_info ${LB}/sbin/pbi
 
