@@ -1007,7 +1007,7 @@ do_index_listing()
 		PBI_PROGNAME=`echo $line | awk -F:::: '{print $2}'`
 		PBI_PROGNAME=`echo ${PBI_PROGNAME} | tr -d ' ' | tr '[A-Z]' '[a-z]'`
 		PBI_ORIGIN=`echo $line | awk -F:::: '{print $1}' | sed 's|PBI=||g'`
-		dName=`grep "^${PBI_ORIGIN}:" ${PBI_TMPDIR}/.pList | cut -d ':' -f 2`
+		dName=`grep "^${PBI_ORIGIN}:" ${PBI_TMPDIR}/.pList | cut -d ':' -f 2 2>/dev/null`
 		if [ -n "$dName" ] ; then
 			echo $dName
 		fi
