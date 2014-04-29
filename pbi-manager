@@ -696,6 +696,13 @@ do_pbi_delete() {
 		exit_err "$PBI_DELETENAME is not installed!"
 	fi
 	require_root
+
+	# This is a safety check, make sure user isn't trying to remove
+	# something which is apart of pcbsd-base
+	${PKG_CMD} query '%ro' $PBI_ORIGIN | grep -q "misc/pcbsd-base"
+	if [ $? -eq 0 ] ; then
+		exit_err "$PBI_DELETENAME is part of PC-BSD base system and cannot be removed."
+	fi
 	
 	if [ "$PBI_FORCEDELETE" = "YES" ] ; then
 		pOpts="-y -f"
