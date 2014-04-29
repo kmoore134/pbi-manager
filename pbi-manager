@@ -305,6 +305,14 @@ init_vars() {
 	PBI_DBINDEXDIR="${PBI_DBDIR}/index"
 	PBI_INDEXDB="${PBI_DBINDEXDIR}/PBI-INDEX"
 	PBI_VERBOSE="NO"
+
+	# Check if EVENT_PIPE is set, and if so unset
+	# it until we are ready to run a specific pkg
+	# command which does downloads
+	if [ -n "$EVENT_PIPE" ] ; then
+		PBI_EVENT_PIPE="$EVENT_PIPE"
+		unset EVENT_PIPE
+	fi
 }
 
 # init tmpdir
@@ -562,11 +570,18 @@ do_pbi_pkg_add() {
 		dn=""	
 	fi
 
+	# Now we will be downloading, so use EVENT_PIPE
+	if [ -n "$PBI_EVENT_PIPE" ] ; then
+		EVENT_PIPE="$PBI_EVENT_PIPE"
+		export EVENT_PIPE
+		unset PBI_EVENT_PIPE
+	fi
 	# Lets check for any conflicts doing this install
 	check_pkg_conflicts "install -FUy ${_toIns}"
 	if [ $? -ne 0 ] ; then
      		exit 1
   	fi
+	unset EVENT_PIPE
 
 	# Now go forth and install these packages
 	${PKG_CMD} ${PKG_FLAG} install -yUf ${_toIns}
@@ -960,7 +975,7 @@ check_update_index() {
 	local _pRepoName="`cat ${PBI_SHARE_DIR}/pkgng-repo | cut -d ':' -f 1`"
 
 	# See if pkgng needs to update
-	pkg update
+	${PKG_CMD} update
 
 	# See if the SQL database stamp changed
 	if [ -e "/var/db/pkg/repo-${_pRepoName}.sqlite" -a -e "${PBI_DBINDEXDIR}.stamp" ] ; then
