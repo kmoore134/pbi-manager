@@ -457,13 +457,19 @@ make_pbi_index() {
 	# Load any extra meta-data from the package
 	load_pkg_metadata
 
+	# Save options used to build this PBI
+	PBI_OPTS=`${PKG_CMD} rquery -U '%Ok=%Ov' $PBI_ORIGIN 2>/dev/null | awk 1 ORS=' '`
+
 	# Save this to the temporary INDEX file
-	echo "PBI=${PBI_ORIGIN}${d}${PBI_PROGNAME}${d}${_PKGOTHER}${d}${PBI_PROGAUTHOR}${d}${PBI_PROGWEB}${d}${PBI_LICENSE}${d}${PBI_PROGTYPE}${d}${PBI_CATEGORY}${d}${PBI_TAGS}${d}${PBI_MAINTAINER}${d}${PBI_SHORTDESC}${d}${PBI_DESC}${d}${PBI_SCREENSHOTS}${d}${PBI_RELATED}${d}${PBI_PLUGINS}${d}${PBI_CONFDIR}${d}" >> ${tI}
+	echo "PBI=${PBI_ORIGIN}${d}${PBI_PROGNAME}${d}${_PKGOTHER}${d}${PBI_PROGAUTHOR}${d}${PBI_PROGWEB}${d}${PBI_LICENSE}${d}${PBI_PROGTYPE}${d}${PBI_CATEGORY}${d}${PBI_TAGS}${d}${PBI_MAINTAINER}${d}${PBI_SHORTDESC}${d}${PBI_DESC}${d}${PBI_SCREENSHOTS}${d}${PBI_RELATED}${d}${PBI_PLUGINS}${d}${PBI_CONFDIR}${d}${PBI_OPTS}${d}" >> ${tI}
 
    done
 
    # Add the categories data
    cat PBI-categories >> ${tI}
+
+   # Add the rest of the packages to the PBI-INDEX
+   add_pkg_db "$tI"
 
    # Move the temp index
    mv ${tI} PBI-INDEX
@@ -483,6 +489,28 @@ make_pbi_index() {
    fi
 
    exit 0
+}
+
+# Add package data to PBI-INDEX for apps not converted to PBIs yet
+add_pkg_db()
+{
+   echo "Adding additional package information to PBI-INDEX..."
+   local d="::::"
+   for pkg in `${PKG_CMD} rquery -U '%o'`
+   do
+	# Check if we have a PBI entry for this package already
+	grep -q "PBI=$pkg${d}" ${1}
+	if [ $? -eq 0 ] ; then continue; fi
+
+	# Save options used to build this PBI
+	PKG_OPTS=`${PKG_CMD} rquery -U '%Ok=%Ov' $pkg 2>/dev/null | awk 1 ORS=' '`
+	# Save License information
+	PKG_LIC=`${PKG_CMD} rquery -U '%L' $pkg 2>/dev/null | awk 1 ORS=' '`
+
+	# Lets create the new entry
+	echo "PKG=${pkg}${d}${PKG_OPTS}${d}${PKG_LIC}${d}" >> ${1}
+   done
+
 }
 
 # Lets check if this PBI exists in the indexdb
@@ -1068,7 +1096,7 @@ load_pkg_metadata()
 	fi
 
 	if [ -z "$PBI_LICENSE" ] ; then
-		PBI_LICENSE="`${PKG_CMD} rquery '%L' ${PBI_ORIGIN} | head -n 1`"
+		PBI_LICENSE="`${PKG_CMD} rquery '%L' ${PBI_ORIGIN} | awk 1 ORS=' '`"
 	fi
 	if [ -z "$PBI_SHORTDESC" ] ; then
 		PBI_SHORTDESC="`${PKG_CMD} rquery '%c' ${PBI_ORIGIN} | awk 1 ORS=' ' | sed 's|  |<br>|g' | sed 's|*|-|g'`"
