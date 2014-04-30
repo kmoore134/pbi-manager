@@ -1108,22 +1108,26 @@ load_pkg_metadata()
 	fi
 
 	if [ -z "$PBI_LICENSE" ] ; then
-		PBI_LICENSE="`${PKG_CMD} rquery '%L' ${PBI_ORIGIN} | awk 1 ORS=' '`"
+		PBI_LICENSE="`${PKG_CMD} rquery -U '%L' ${PBI_ORIGIN} | awk 1 ORS=' '`"
 	fi
 	if [ -z "$PBI_SHORTDESC" ] ; then
-		PBI_SHORTDESC="`${PKG_CMD} rquery '%c' ${PBI_ORIGIN} | awk 1 ORS=' ' | sed 's|  |<br>|g' | sed 's|*|-|g'`"
-	fi
-	if [ -z "$PBI_MAINTAINER" ] ; then
-		PBI_MAINTAINER="`${PKG_CMD} rquery '%m' ${PBI_ORIGIN}`"
+		PBI_SHORTDESC="`${PKG_CMD} rquery -U '%c' ${PBI_ORIGIN} | awk 1 ORS=' ' | sed 's|  |<br>|g' | sed 's|*|-|g'`"
 	fi
 	if [ -z "$PBI_DESC" ] ; then
-		PBI_DESC="`${PKG_CMD} rquery '%e' ${PBI_ORIGIN} | awk 1 ORS=' ' | sed 's|  |<br>|g' | sed 's|*|-|g'`"
+		PBI_DESC="`${PKG_CMD} rquery -U '%e' ${PBI_ORIGIN} | awk 1 ORS=' ' | sed 's|  |<br>|g' | sed 's|*|-|g'`"
+	fi
+
+	# Grab all the pkgng info we can in one pass
+	pkgLine="`${PKG_CMD} rquery -U '%m::::%w::::%C' ${PBI_ORIGIN}`"
+
+	if [ -z "$PBI_MAINTAINER" ] ; then
+		PBI_MAINTAINER=`echo $pkgLine | awk -F:::: '{print $1}'`
 	fi
 	if [ -z "$PBI_PROGWEB" ] ; then
-		PBI_PROGWEB="`${PKG_CMD} rquery '%w' ${PBI_ORIGIN}`"
+		PBI_PROGWEB=`echo $pkgLine | awk -F:::: '{print $2}'`
 	fi
 	if [ -z "$PBI_CATEGORY" ] ; then
-		PBI_CATEGORY="`${PKG_CMD} rquery '%C' ${PBI_ORIGIN} | head -n 1`"
+		PBI_CATEGORY=`echo $pkgLine | awk -F:::: '{print $3}'`
 	fi
 	if [ -z "$PBI_PROGTYPE" ] ; then
 		PBI_PROGTYPE="Text"
