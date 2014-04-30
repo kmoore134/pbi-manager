@@ -306,6 +306,9 @@ init_vars() {
 	PBI_INDEXDB="${PBI_DBINDEXDIR}/PBI-INDEX"
 	PBI_VERBOSE="NO"
 
+	# Set location where we pull the ratings from to use in makeindex
+	PBI_RATINGSURL="http://web.pcbsd.org/AppCafe-ratings"
+
 	# Check if EVENT_PIPE is set, and if so unset
 	# it until we are ready to run a specific pkg
 	# command which does downloads
@@ -390,11 +393,17 @@ make_pbi_index() {
    ${PKG_CMD} update 2>/dev/null
 
    echo "Building PBI-INDEX... This may take a few moments..."
+   init_tmpdir
 	
    # Set our delimiter and temp INDEX files
    d="::::"
    tI=".INDEX.$$"
+   tR="${PBI_TMPDIR}/.ratings"
    touch $tI
+
+   echo "Fetching PBI ratings file..."
+   fetch -o $tR ${PBI_RATINGSURL}
+
 
    for pbi in `find . -type f -name "${PBI_CONFFILE}" | grep -v '\.svn' | grep -v '\.git' | sort`
    do
@@ -460,8 +469,11 @@ make_pbi_index() {
 	# Save options used to build this PBI
 	PBI_OPTS=`${PKG_CMD} rquery -U '%Ok=%Ov' $PBI_ORIGIN 2>/dev/null | awk 1 ORS=' '`
 
+	#Do we have a rating for this?
+	PBI_RATING=`grep "^Rating=${PBI_ORIGIN}${d}" $tR | sed "s|Rating=${PBI_ORIGIN}${d}||g"`
+
 	# Save this to the temporary INDEX file
-	echo "PBI=${PBI_ORIGIN}${d}${PBI_PROGNAME}${d}${_PKGOTHER}${d}${PBI_PROGAUTHOR}${d}${PBI_PROGWEB}${d}${PBI_LICENSE}${d}${PBI_PROGTYPE}${d}${PBI_CATEGORY}${d}${PBI_TAGS}${d}${PBI_MAINTAINER}${d}${PBI_SHORTDESC}${d}${PBI_DESC}${d}${PBI_SCREENSHOTS}${d}${PBI_RELATED}${d}${PBI_PLUGINS}${d}${PBI_CONFDIR}${d}${PBI_OPTS}${d}" >> ${tI}
+	echo "PBI=${PBI_ORIGIN}${d}${PBI_PROGNAME}${d}${_PKGOTHER}${d}${PBI_PROGAUTHOR}${d}${PBI_PROGWEB}${d}${PBI_LICENSE}${d}${PBI_PROGTYPE}${d}${PBI_CATEGORY}${d}${PBI_TAGS}${d}${PBI_MAINTAINER}${d}${PBI_SHORTDESC}${d}${PBI_DESC}${d}${PBI_SCREENSHOTS}${d}${PBI_RELATED}${d}${PBI_PLUGINS}${d}${PBI_CONFDIR}${d}${PBI_OPTS}${d}${PBI_RATING}${d}" >> ${tI}
 
    done
 
